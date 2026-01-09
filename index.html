@@ -2,802 +2,881 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <!-- 加入 viewport-fit=cover 確保滿版 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>NotebookLM PDF 轉 PPT 簡報生成器 (V17 強制更新版 - 修復預覽錯誤)</title>
+    <title>NotebookLM PDF 轉 PPT (V36.4 完美座標修正版)</title>
     
-    <!-- PWA 設定 -->
     <link rel="manifest" href="manifest.json">
     <script>
-      // ★★★ V17 修正：強制移除舊的 Service Worker 以清除快取 ★★★
-      // 加入 try-catch 避免在預覽環境 (Preview) 出現 InvalidStateError
       if ('serviceWorker' in navigator) {
         try {
-            navigator.serviceWorker.getRegistrations().then(function(registrations) {
-                for(let registration of registrations) {
-                    registration.unregister().then(function(boolean) {
-                        console.log('Old Service Worker unregistered to force update.');
-                    }).catch(err => console.log('SW unregister skip:', err));
-                }
-            }).catch(err => {
-                console.log('Service Worker access restricted (Normal in preview):', err);
-            });
-        } catch (e) {
-            console.log('Service Worker not available in this context:', e);
-        }
-        
-        // 嘗試清除快取存儲
-        try {
-            if ('caches' in window) {
-                caches.keys().then(function(names) {
-                    for (let name of names) {
-                        caches.delete(name);
-                    }
-                }).catch(err => console.log('Cache access restricted:', err));
-            }
-        } catch (e) {
-            console.log('Cache API not available:', e);
-        }
+            navigator.serviceWorker.register('sw.js').catch(err => console.log('SW Skip:', err));
+        } catch (e) {}
       }
     </script>
     
-    <!-- 引入必要的函式庫 -->
+    <!-- Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     </script>
 
     <style>
-        /* 使用 dvh 解決手機網址列遮擋問題 */
-        body { font-family: 'Noto Sans TC', sans-serif; background-color: #f3f4f6; height: 100dvh; }
+        body { font-family: 'Microsoft JhengHei', 'Noto Sans TC', sans-serif; background-color: #f3f4f6; height: 100vh; overflow: hidden; }
         
-        /* 頁面卡片樣式 */
-        .page-card { transition: all 0.3s ease; }
-        .page-card.active { border: 2px solid #3b82f6; box-shadow: 0 4px 6px -1px rgba(59, 130, 246, 0.5); }
-        .page-card.done { border-color: #10b981; background-color: #ecfdf5; }
-        .page-card.error { border-color: #ef4444; background-color: #fef2f2; }
-        
-        /* 防止畫布操作時捲動頁面 */
+        .page-card { transition: all 0.2s; border: 2px solid transparent; cursor: pointer; }
+        .page-card:hover { transform: translateY(-2px); }
+        .page-card.active { border-color: #2563eb; background-color: #eff6ff; }
+        .page-card.done { border-color: #10b981; }
+
         canvas { touch-action: none; }
-        
-        /* 吸管模式游標 */
         .cursor-pipette { cursor: crosshair !important; }
 
-        /* 手機版優化：隱藏捲軸但保留功能 */
-        .no-scrollbar::-webkit-scrollbar { display: none; }
-        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        /* Scrollbar Styling */
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 3px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background-color: transparent; }
+
+        /* Slider Styling */
+        input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            background: #cbd5e1;
+            border-radius: 5px;
+            outline: none;
+            height: 6px;
+        }
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px; 
+            height: 18px;
+            border-radius: 50%;
+            background: #2563eb;
+            cursor: pointer;
+            border: 2px solid white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+
+        /* OCR Box Styling */
+        .ocr-box { position: absolute; cursor: pointer; z-index: 40; transition: all 0.1s; }
+        .click-through .ocr-box { pointer-events: none !important; }
+
+        /* Green Box (Keep) */
+        .ocr-box.keep { border: 1px solid #22c55e; background-color: rgba(34, 197, 94, 0.05); }
+        .ocr-box.keep:hover { background-color: rgba(34, 197, 94, 0.2); box-shadow: 0 0 5px #22c55e; }
+
+        /* Red Box (Mask + Text) */
+        .ocr-box.mask-text { border-color: #ef4444; background-color: rgba(239, 68, 68, 0.2); }
+        .ocr-box.mask-text::after {
+            content: '重建'; position: absolute; top: -14px; right: 0;
+            background: #ef4444; color: white; font-size: 10px; padding: 1px 4px; border-radius: 4px;
+        }
+        .ocr-box.mask-text:hover { background-color: rgba(239, 68, 68, 0.3); box-shadow: 0 0 5px #ef4444; }
+
+        /* Blue Box (Text Only) */
+        .ocr-box.text-only { border-color: #3b82f6; background-color: rgba(59, 130, 246, 0.1); }
+        .ocr-box.text-only::after {
+            content: '僅貼字'; position: absolute; top: -14px; right: 0;
+            background: #3b82f6; color: white; font-size: 10px; padding: 1px 4px; border-radius: 4px;
+        }
+        .ocr-box.text-only:hover { background-color: rgba(59, 130, 246, 0.2); box-shadow: 0 0 5px #3b82f6; }
 
         .loader {
-            border: 3px solid #f3f3f3;
-            border-radius: 50%;
-            border-top: 3px solid #3b82f6;
-            width: 20px;
-            height: 20px;
-            -webkit-animation: spin 1s linear infinite; /* Safari */
-            animation: spin 1s linear infinite;
+            border: 3px solid #e5e7eb; border-top: 3px solid #2563eb; border-radius: 50%;
+            width: 24px; height: 24px; animation: spin 1s linear infinite;
         }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
-<body class="flex flex-col overflow-hidden text-gray-800">
+<body class="flex flex-col text-slate-800">
 
-    <!-- Header (響應式調整：手機版直排，電腦版橫排) -->
-    <header class="bg-white shadow-sm z-20 p-3 flex flex-col md:flex-row justify-between gap-3 shrink-0">
-        <div class="flex justify-between items-center">
-            <div class="flex items-center gap-2">
-                <div class="bg-blue-600 text-white p-1.5 rounded-lg font-bold text-lg">N</div>
-                <h1 class="text-lg font-bold text-gray-800 truncate">PDF 轉 PPT <span class="text-xs font-normal text-white bg-orange-500 px-2 py-0.5 rounded">V17</span></h1>
-            </div>
+    <!-- Header -->
+    <header class="bg-white shadow-sm z-30 p-3 flex justify-between items-center shrink-0 h-16 relative">
+        <div class="flex items-center gap-2">
+            <div class="bg-blue-600 text-white p-1.5 rounded-lg font-bold text-xl">N</div>
+            <h1 class="text-xl font-bold hidden sm:block">PDF 轉 PPT <span class="text-xs bg-purple-600 text-white px-2 py-0.5 rounded ml-1">V36.4 Fix</span></h1>
         </div>
         
-        <div class="flex flex-wrap gap-2 items-center justify-between md:justify-end">
-            <!-- API Key 輸入 -->
-            <div class="flex flex-col items-end w-full md:w-auto">
-                <label class="text-xs text-gray-500 mb-1 hidden md:block">Google Gemini API Key</label>
-                <input type="password" id="apiKey" class="border rounded px-2 py-1.5 text-xs w-full md:w-64 focus:outline-none focus:border-blue-500" placeholder="貼上您的 API Key (AIza...)">
+        <div class="flex items-center gap-2 sm:gap-3">
+            <div class="flex flex-col items-end">
+                <input type="password" id="apiKey" class="border rounded px-2 py-1 text-sm w-32 sm:w-64 focus:border-blue-500 outline-none" placeholder="Gemini API Key">
             </div>
             
-            <div class="flex gap-2 w-full md:w-auto">
-                <label class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded cursor-pointer transition flex items-center justify-center gap-2 flex-1 md:flex-none text-sm shadow-sm">
-                    <i data-lucide="folder-open" class="w-4 h-4"></i>
-                    <span>PDF</span>
-                    <input type="file" id="pdfInput" accept=".pdf" class="hidden">
-                </label>
-                <button id="downloadBtn" onclick="exportPPT()" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 flex-1 md:flex-none text-sm shadow-sm" disabled>
-                    <i data-lucide="download" class="w-4 h-4"></i>
-                    <span>下載</span>
-                </button>
-            </div>
-        </div>
-        
-        <!-- 說明與選項 -->
-        <div class="flex justify-between md:justify-end gap-4 text-xs text-gray-600 bg-gray-50 p-2 rounded border border-gray-100 items-center">
-            <span class="hidden md:inline">💡 吸管取色 -> 筆刷遮蓋 -> 自動分析</span>
-            <label class="flex items-center gap-2 cursor-pointer hover:text-blue-600 pl-2">
-                <input type="checkbox" id="useBgImageDesktop" class="rounded text-blue-600 focus:ring-blue-500" checked onchange="syncOptions(this)">
-                <span>保留底圖</span>
+            <label class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-2 rounded cursor-pointer flex items-center gap-2 text-sm shadow transition">
+                <i data-lucide="folder-open" class="w-4 h-4"></i> <span class="hidden sm:inline">開啟 PDF</span>
+                <input type="file" id="pdfInput" accept=".pdf" class="hidden">
             </label>
-            <!-- 手機版隱藏選項同步 -->
-            <input type="checkbox" id="useBgImageMobile" class="hidden" checked onchange="syncOptions(this)">
+            <button id="downloadBtn" onclick="exportPPT()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded flex items-center gap-2 text-sm shadow disabled:opacity-50 disabled:cursor-not-allowed transition" disabled>
+                <i data-lucide="download" class="w-4 h-4"></i> <span class="hidden sm:inline">下載 PPT</span>
+            </button>
         </div>
     </header>
 
-    <!-- Main Content (響應式調整：手機版上下排，電腦版左右排) -->
-    <main class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+    <!-- Main -->
+    <div class="flex flex-1 overflow-hidden relative">
         
-        <!-- Left Panel: Page List -->
-        <!-- 手機版：上方橫向捲動 (min-h-[100px]) / 電腦版：左側直式列表 (w-80) -->
-        <div class="w-full md:w-80 bg-white border-b md:border-b-0 md:border-r flex flex-col shrink-0 transition-all duration-300 z-10" id="leftPanel">
-            
-            <!-- 控制區 -->
-            <div class="p-2 md:p-3 bg-gray-50 border-b flex justify-between items-center gap-2">
-                <div class="flex items-center gap-2 overflow-hidden">
-                    <span id="pageCount" class="font-bold text-gray-700 text-sm whitespace-nowrap">等待檔案...</span>
-                    <div id="statusMsg" class="bg-yellow-100 text-yellow-800 text-[10px] px-2 py-0.5 rounded hidden truncate">就緒</div>
-                </div>
-                
-                <!-- Range & Auto Run -->
-                <div id="controlPanel" class="hidden flex gap-1 items-center">
-                    <div id="rangeSelector" class="flex gap-2 text-xs items-center mr-2 hidden md:flex">
-                        <label class="cursor-pointer flex items-center gap-1"><input type="radio" name="rangeType" value="all" checked onchange="toggleRangeInput()"> 全部</label>
-                        <label class="cursor-pointer flex items-center gap-1"><input type="radio" name="rangeType" value="custom" onchange="toggleRangeInput()"> 指定</label>
-                        <input type="text" id="customRangeInput" disabled placeholder="1,3-5" class="border rounded px-1 w-16 text-xs disabled:bg-gray-200">
-                    </div>
-                    
-                    <button id="autoRunBtn" onclick="startAutoRun()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-2 py-1.5 rounded flex items-center gap-1 shadow-sm">
-                        <i data-lucide="rocket" class="w-3 h-3"></i> <span class="hidden sm:inline">自動</span>
-                    </button>
-                    <button id="stopBtn" onclick="stopAutoRun()" class="hidden bg-red-500 text-white text-xs px-2 py-1.5 rounded">
-                        <i data-lucide="square" class="w-3 h-3"></i>
-                    </button>
-                </div>
+        <!-- Left: List -->
+        <div class="w-64 bg-white border-r flex flex-col shrink-0 z-20 shadow-sm">
+            <div class="p-3 border-b bg-slate-50 flex justify-between items-center">
+                <span id="pageCount" class="font-bold text-slate-600 text-xs">等待檔案...</span>
+                <button id="autoRunBtn" onclick="startAutoRun()" class="hidden text-blue-600 text-xs font-bold hover:underline">
+                    全部自動分析
+                </button>
             </div>
-            
-            <!-- 頁面列表 -->
-            <div id="pagesList" class="flex-1 overflow-x-auto md:overflow-x-hidden md:overflow-y-auto p-2 flex flex-row md:flex-col gap-2 bg-gray-100 md:bg-white min-h-[100px] md:min-h-0">
-                <div class="text-center text-gray-400 text-xs w-full py-4">請先上傳 PDF</div>
+            <div id="pagesList" class="flex-1 overflow-y-auto p-3 space-y-3 bg-slate-50 custom-scrollbar">
+                <div class="text-center text-slate-400 text-xs mt-10">請先上傳 PDF</div>
             </div>
         </div>
 
-        <!-- Right Panel: Editor -->
-        <div class="flex-1 bg-gray-50 flex flex-col relative overflow-hidden">
+        <!-- Right: Editor -->
+        <div class="flex-1 bg-slate-100 relative flex flex-col h-full overflow-hidden">
             
-            <!-- Editor Container (置中) -->
-            <div id="previewArea" class="flex-1 flex flex-col p-2 md:p-6 overflow-y-auto hidden">
+            <!-- Toolbar -->
+            <div id="toolbar" class="hidden bg-white p-2 shadow-sm border-b flex items-center justify-between gap-4 shrink-0 z-20 overflow-x-auto custom-scrollbar">
                 
-                <!-- Top Toolbar (工具列：響應式換行) -->
-                <div class="flex flex-wrap items-center justify-between gap-2 mb-2 bg-white p-2 rounded shadow-sm sticky top-0 z-30">
-                    <div class="flex items-center gap-2">
-                        <h2 class="text-sm font-bold text-gray-800 hidden sm:block">編輯</h2>
-                        <span id="currentStatusBadge" class="bg-gray-200 text-gray-600 px-2 py-0.5 rounded text-xs">未分析</span>
+                <!-- Zoom & Mode -->
+                <div class="flex items-center gap-2 shrink-0">
+                     <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
+                        <button onclick="changeZoom(-0.2)" class="p-1.5 rounded hover:bg-white transition text-slate-600" title="縮小">
+                            <i data-lucide="minus" class="w-4 h-4"></i>
+                        </button>
+                        <span id="zoomLabel" class="text-xs font-bold w-10 text-center select-none">100%</span>
+                        <button onclick="changeZoom(0.2)" class="p-1.5 rounded hover:bg-white transition text-slate-600" title="放大">
+                            <i data-lucide="plus" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+
+                    <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
+                        <button onclick="setMode('select')" id="btn-mode-select" class="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition bg-white shadow text-blue-700" title="選取模式">
+                            <i data-lucide="mouse-pointer-2" class="w-4 h-4"></i>
+                        </button>
+                        <button onclick="setMode('brush')" id="btn-mode-brush" class="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition text-slate-500 hover:text-slate-700" title="塗鴉模式">
+                            <i data-lucide="brush" class="w-4 h-4"></i>
+                        </button>
                     </div>
                     
-                    <!-- Brush Tools -->
-                    <div class="flex items-center gap-1 sm:gap-2 flex-wrap">
-                        <span class="text-xs font-bold text-gray-600 flex items-center gap-1 hidden sm:flex">
-                            <i data-lucide="brush" class="w-3 h-3"></i>
-                        </span>
-                        
-                        <button id="eyedropperBtn" onclick="toggleEyedropper()" class="p-1.5 border rounded bg-gray-50 hover:bg-gray-100 text-gray-700 transition-colors" title="吸管">
+                    <label class="flex items-center gap-1 cursor-pointer bg-slate-50 border px-2 py-1.5 rounded-lg hover:bg-slate-100 transition shrink-0 select-none">
+                        <input type="checkbox" id="mergeToggle" class="rounded text-blue-600 focus:ring-blue-500" onchange="toggleMerge()">
+                        <span class="text-xs font-bold text-slate-600">合併段落</span>
+                    </label>
+                </div>
+
+                <!-- Tools -->
+                <div class="flex items-center gap-3 shrink-0">
+                    <button onclick="analyzeCurrentPage()" class="bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-indigo-100 transition border border-indigo-200 shadow-sm whitespace-nowrap">
+                        <i data-lucide="scan-text" class="w-4 h-4"></i> <span class="hidden xl:inline">分析排版</span><span class="xl:hidden">分析</span>
+                    </button>
+
+                    <div class="flex items-center gap-2 border-l pl-3 bg-slate-50 p-1 rounded-lg border border-slate-200">
+                        <button id="eyedropperBtn" onclick="toggleEyedropper()" class="p-1.5 border rounded bg-white hover:bg-slate-100 text-slate-600 transition shadow-sm" title="吸管取色">
                             <i data-lucide="pipette" class="w-4 h-4"></i>
                         </button>
-
-                        <input type="color" id="brushColor" value="#FFFFFF" class="h-7 w-8 p-0 border rounded cursor-pointer" title="筆刷顏色">
-                        <input type="range" id="brushSize" min="5" max="50" value="20" class="w-16 sm:w-24" title="筆刷粗細">
+                        <div class="relative w-8 h-8 rounded border overflow-hidden shadow-sm cursor-pointer hover:scale-105 transition">
+                             <input type="color" id="maskColor" value="#FFFFFF" class="absolute -top-2 -left-2 w-16 h-16 p-0 border-0 cursor-pointer" title="選擇顏色">
+                        </div>
                         
-                        <button onclick="clearMask()" class="text-xs bg-white border px-2 py-1.5 rounded text-red-600 flex items-center gap-1 shadow-sm ml-1">
-                            <i data-lucide="trash-2" class="w-3 h-3"></i> <span class="hidden sm:inline">清除</span>
+                        <div class="w-px h-4 bg-slate-300 mx-1"></div>
+                        
+                        <span class="text-xs font-bold text-slate-500 select-none">筆刷:</span>
+                        <!-- Wide Input Range for Visibility -->
+                        <div class="relative w-32 flex items-center px-2">
+                             <input type="range" id="brushSize" min="5" max="100" value="20" class="w-full h-6 cursor-pointer z-10" title="調整筆刷大小">
+                        </div>
+                        
+                        <button onclick="undoLastStroke()" class="text-slate-500 hover:text-blue-600 p-1.5 transition border rounded bg-white shadow-sm" title="復原上一筆 (Undo)">
+                            <i data-lucide="undo-2" class="w-4 h-4"></i>
+                        </button>
+                        
+                        <button onclick="clearMask()" class="text-slate-400 hover:text-red-500 p-1.5 transition" title="清除所有塗鴉">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
                         </button>
                     </div>
                 </div>
+            </div>
 
-                <!-- Canvas Area (響應式容器，grid 排版) -->
-                <div class="w-full grid grid-cols-1 lg:grid-cols-5 gap-4">
+            <!-- Preview Area (Fixed Scroll Issue) -->
+            <!-- Using display:flex + justify-center + align-items-start to ensure content is centered but scrollable without clipping -->
+            <div id="previewArea" class="flex-1 overflow-auto bg-slate-200 relative hidden p-8 custom-scrollbar flex flex-col items-center">
+                
+                <!-- Container: Margin auto centers it when smaller than viewport, allows scroll when larger -->
+                <div id="canvasContainer" class="relative shadow-2xl bg-white hidden flex-shrink-0 m-auto" style="width: 0; height: 0;">
                     
-                    <!-- 圖片與畫布 (佔滿或佔 3/5) -->
-                    <div class="col-span-1 lg:col-span-3">
-                        <div class="relative border rounded-lg bg-gray-200 overflow-hidden flex justify-center items-center shadow-inner" style="min-height: 300px; max-height: 70vh;">
-                            <!-- PDF Layer -->
-                            <canvas id="previewCanvas" class="absolute z-10 shadow-sm" style="max-width: 100%; max-height: 100%; object-fit: contain;"></canvas>
-                            <!-- Mask Layer (For drawing) -->
-                            <canvas id="maskCanvas" class="absolute z-20 cursor-crosshair touch-none" style="max-width: 100%; max-height: 100%; object-fit: contain;"></canvas>
-                        </div>
-                    </div>
+                    <!-- 1. PDF Layer -->
+                    <canvas id="pdfCanvas" class="absolute top-0 left-0 w-full h-full z-10"></canvas>
+                    
+                    <!-- 2. Drawing Layer -->
+                    <canvas id="maskCanvas" class="absolute top-0 left-0 w-full h-full z-20 cursor-crosshair touch-none"></canvas>
 
-                    <!-- 表單 (佔滿或佔 2/5) -->
-                    <div class="col-span-1 lg:col-span-2 space-y-3 bg-white p-3 rounded shadow-sm h-fit">
-                        <div>
-                            <label class="block text-xs font-bold text-gray-500 mb-1">標題</label>
-                            <input type="text" id="slideTitle" class="w-full border rounded px-2 py-1.5 text-sm focus:border-blue-500 outline-none bg-gray-50 focus:bg-white">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold text-gray-500 mb-1">內文 (自動分析結果)</label>
-                            <textarea id="slideContent" rows="6" class="w-full border rounded px-2 py-1.5 text-sm focus:border-blue-500 outline-none bg-gray-50 focus:bg-white resize-y"></textarea>
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold text-gray-500 mb-1">備忘稿</label>
-                            <textarea id="slideNotes" rows="2" class="w-full border rounded px-2 py-1.5 text-sm bg-yellow-50 focus:bg-white outline-none"></textarea>
-                        </div>
-                        <div class="flex justify-end pt-2">
-                            <button onclick="saveCurrentSlide()" class="bg-blue-600 active:bg-blue-700 text-white px-6 py-2 rounded text-sm font-bold shadow-md flex items-center gap-2 w-full sm:w-auto justify-center">
-                                <i data-lucide="save" class="w-4 h-4"></i> 保存此頁
-                            </button>
-                        </div>
+                    <!-- 3. Overlay Layer -->
+                    <div id="textOverlay" class="absolute top-0 left-0 w-full h-full z-30 pointer-events-none"></div>
+
+                    <!-- Loader -->
+                    <div id="canvasLoader" class="absolute inset-0 bg-white/90 z-50 hidden flex flex-col items-center justify-center backdrop-blur-sm">
+                        <div class="loader mb-3"></div>
+                        <span class="text-sm font-bold text-slate-600 animate-pulse" id="loaderText">AI 運算中...</span>
                     </div>
                 </div>
-                
-                <!-- Spacer -->
-                <div class="h-10"></div>
             </div>
 
-            <!-- Empty State -->
-            <div id="emptyState" class="flex-1 flex flex-col items-center justify-center text-gray-400 p-8">
-                <i data-lucide="mouse-pointer-click" class="w-12 h-12 mb-2 opacity-50"></i>
-                <p class="text-sm">請選擇上方頁面開始編輯</p>
+            <div id="emptyState" class="flex-1 flex flex-col items-center justify-center text-slate-400">
+                <i data-lucide="mouse-pointer-2" class="w-16 h-16 mb-4 opacity-20"></i>
+                <p class="text-sm font-bold opacity-60">請從左側列表選擇一頁開始編輯</p>
+            </div>
+            
+            <div class="bg-white border-t p-2 px-4 flex justify-between items-center text-xs text-slate-500 shrink-0 z-20">
+                <div id="statusText">請上傳檔案</div>
+                <div class="font-bold flex gap-3 text-xs">
+                    <span class="text-green-600">🟩 原圖</span>
+                    <span class="text-gray-300">|</span>
+                    <span class="text-red-400">🟥 遮蓋+貼字</span>
+                    <span class="text-gray-300">|</span>
+                    <span class="text-blue-500">🟦 僅貼字(推薦)</span>
+                </div>
             </div>
         </div>
-    </main>
+    </div>
 
-    <!-- JS Logic -->
     <script>
-        // Init Icons
         if (typeof lucide !== 'undefined') lucide.createIcons();
-        
-        // --- 變數與狀態 ---
+
+        // State
         let pdfDoc = null;
-        let pdfPages = []; 
-        let currentPageIndex = -1;
-        let isAutoRunning = false;
-
-        // 畫布變數
+        let pdfPages = [];
+        let currentIndex = -1;
+        let editMode = 'select'; 
         let isDrawing = false;
-        let isEyedropperActive = false; // 吸管狀態
-        let lastX = 0;
-        let lastY = 0;
-        const maskCanvas = document.getElementById('maskCanvas');
-        const maskCtx = maskCanvas.getContext('2d');
-        const previewCanvas = document.getElementById('previewCanvas');
+        let isEyedropper = false;
+        let zoomLevel = 1.0; 
 
-        // UI 元素
+        // API Models
+        const MODELS = ["gemini-2.5-flash-preview-09-2025", "gemini-1.5-flash"];
+
+        // DOM Elements
         const apiKeyInput = document.getElementById('apiKey');
         const fileInput = document.getElementById('pdfInput');
         const pagesList = document.getElementById('pagesList');
         const previewArea = document.getElementById('previewArea');
+        const canvasContainer = document.getElementById('canvasContainer');
+        const textOverlay = document.getElementById('textOverlay');
         const emptyState = document.getElementById('emptyState');
-        const statusMsg = document.getElementById('statusMsg');
-        const brushColorInput = document.getElementById('brushColor');
+        const toolbar = document.getElementById('toolbar');
+        const statusTextEl = document.getElementById('statusText'); 
+        
+        const pdfCanvas = document.getElementById('pdfCanvas');
+        const maskCanvas = document.getElementById('maskCanvas');
+        const maskCtx = maskCanvas.getContext('2d');
+        const canvasLoader = document.getElementById('canvasLoader');
+        const loaderText = document.getElementById('loaderText');
+        const zoomLabel = document.getElementById('zoomLabel');
+        const mergeToggle = document.getElementById('mergeToggle');
+        
+        const maskColorInput = document.getElementById('maskColor');
         const brushSizeInput = document.getElementById('brushSize');
         const eyedropperBtn = document.getElementById('eyedropperBtn');
+        const btnModeSelect = document.getElementById('btn-mode-select');
+        const btnModeBrush = document.getElementById('btn-mode-brush');
 
-        // 同步手機/電腦版選項
-        function syncOptions(el) {
-            const val = el.checked;
-            document.getElementById('useBgImageDesktop').checked = val;
-            document.getElementById('useBgImageMobile').checked = val;
+        // --- 1. File Handling ---
+        fileInput.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            if (file.type !== 'application/pdf') return alert('請上傳 PDF');
+
+            const reader = new FileReader();
+            reader.onload = async function() {
+                try {
+                    document.getElementById('pageCount').textContent = '讀取中...';
+                    pdfDoc = await pdfjsLib.getDocument(new Uint8Array(this.result)).promise;
+                    document.getElementById('pageCount').textContent = `共 ${pdfDoc.numPages} 頁`;
+                    document.getElementById('autoRunBtn').classList.remove('hidden');
+                    renderThumbnails();
+                } catch (e) { alert('PDF 讀取失敗: ' + e.message); }
+            };
+            reader.readAsArrayBuffer(file);
+        };
+
+        async function renderThumbnails() {
+            pagesList.innerHTML = '';
+            pdfPages = [];
+            
+            for (let i = 1; i <= pdfDoc.numPages; i++) {
+                const page = await pdfDoc.getPage(i);
+                const viewport = page.getViewport({ scale: 0.2 });
+                const canvas = document.createElement('canvas');
+                canvas.width = viewport.width; canvas.height = viewport.height;
+                await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+
+                const div = document.createElement('div');
+                div.className = 'page-card bg-white p-2 rounded-lg shadow-sm border border-slate-200 flex items-center gap-3 hover:bg-blue-50';
+                div.innerHTML = `
+                    <div class="font-bold text-slate-400 text-xs w-6">P.${i}</div>
+                    <img src="${canvas.toDataURL()}" class="h-12 w-auto border border-slate-200 rounded">
+                    <div class="flex-1 text-right">
+                        <div class="status-badge text-[10px] bg-slate-100 text-slate-500 px-2 py-1 rounded-full inline-block">未分析</div>
+                    </div>
+                `;
+                div.onclick = () => loadPage(i - 1);
+                pagesList.appendChild(div);
+
+                pdfPages.push({ 
+                    pageNum: i, 
+                    el: div, 
+                    rawData: null,  
+                    displayData: null,
+                    blockStates: [],
+                    viewport: page.getViewport({ scale: 1.0 }),
+                    strokes: [] // Store Normalized strokes
+                });
+            }
         }
 
-        // --- 核心：座標轉換 (支援 RWD 縮放) ---
-        // 這是解決手機上「點不到位」的關鍵函式
-        function getCanvasPoint(e, canvas) {
-            const rect = canvas.getBoundingClientRect();
-            // 計算 Canvas 實際像素與顯示大小的比例
-            const scaleX = canvas.width / rect.width;
-            const scaleY = canvas.height / rect.height;
+        // --- 2. Load & Zoom Logic ---
+        async function loadPage(index) {
+            currentIndex = index;
+            const item = pdfPages[index];
+
+            document.querySelectorAll('.page-card').forEach(c => c.classList.remove('active'));
+            item.el.classList.add('active');
             
-            // 支援滑鼠與觸控
-            const clientX = e.clientX || (e.touches && e.touches[0].clientX);
-            const clientY = e.clientY || (e.touches && e.touches[0].clientY);
+            emptyState.classList.add('hidden');
+            previewArea.classList.remove('hidden');
+            toolbar.classList.remove('hidden');
+
+            renderPageWithZoom(item);
+        }
+
+        async function renderPageWithZoom(item) {
+            const pdfW = item.viewport.width;
+            const pdfH = item.viewport.height;
+            const ratio = pdfW / pdfH;
             
+            // Calculate base dimensions relative to viewport to ensure good fit
+            const baseW = window.innerWidth * 0.7; 
+            const baseH = window.innerHeight * 0.8;
+            
+            let finalW, finalH;
+            if (baseW / baseH > ratio) {
+                 finalH = baseH * zoomLevel;
+                 finalW = finalH * ratio;
+            } else {
+                 finalW = baseW * zoomLevel;
+                 finalH = finalW / ratio;
+            }
+
+            // Apply size to container
+            canvasContainer.style.width = `${finalW}px`;
+            canvasContainer.style.height = `${finalH}px`;
+            canvasContainer.classList.remove('hidden');
+
+            // Set canvas internal resolution based on zoom (Sharper text)
+            const scale = 2.0 * zoomLevel; 
+            pdfCanvas.width = pdfW * scale;
+            pdfCanvas.height = pdfH * scale;
+            maskCanvas.width = pdfW * scale;
+            maskCanvas.height = pdfH * scale;
+
+            // Render PDF
+            const page = await pdfDoc.getPage(item.pageNum);
+            await page.render({ 
+                canvasContext: pdfCanvas.getContext('2d'), 
+                viewport: page.getViewport({ scale: scale }) 
+            }).promise;
+
+            // Redraw Strokes using Normalized Coordinates (CRITICAL FIX)
+            redrawStrokes(item);
+
+            // Handle Merging
+            if (mergeToggle.checked) {
+                item.displayData = mergeTextBlocks(item.rawData);
+            } else {
+                item.displayData = item.rawData;
+            }
+            
+            if (item.displayData && item.blockStates.length !== item.displayData.length) {
+                 item.blockStates = new Array(item.displayData.length).fill(0);
+            }
+
+            renderTextOverlay();
+            updateStatus(item.rawData ? 'success' : 'idle');
+            setMode(editMode); 
+        }
+
+        function changeZoom(delta) {
+            zoomLevel = Math.max(0.5, Math.min(zoomLevel + delta, 3.0));
+            zoomLabel.textContent = `${Math.round(zoomLevel * 100)}%`;
+            if (currentIndex !== -1) {
+                renderPageWithZoom(pdfPages[currentIndex]);
+            }
+        }
+
+        // --- 3. Coordinate Logic (Normalization) ---
+        // Converts Screen Event -> Normalized Coordinates (0.0 to 1.0)
+        function getNormalizedPoint(e) {
+            const rect = maskCanvas.getBoundingClientRect();
+            // Offset inside the element
+            const offsetX = e.clientX - rect.left;
+            const offsetY = e.clientY - rect.top;
+            
+            // Normalize: 0.0 (left/top) to 1.0 (right/bottom)
             return {
-                x: (clientX - rect.left) * scaleX,
-                y: (clientY - rect.top) * scaleY
+                x: offsetX / rect.width,
+                y: offsetY / rect.height
             };
         }
 
-        // Setup Drawing Events
-        maskCanvas.addEventListener('mousedown', startDrawing);
-        maskCanvas.addEventListener('mousemove', draw);
-        maskCanvas.addEventListener('mouseup', stopDrawing);
-        maskCanvas.addEventListener('mouseout', stopDrawing);
-        
-        // Touch support
-        maskCanvas.addEventListener('touchstart', (e) => {
-            if (e.target === maskCanvas) e.preventDefault(); 
-            startDrawing(e);
-        }, { passive: false });
-        
-        maskCanvas.addEventListener('touchmove', (e) => {
-            if (e.target === maskCanvas) e.preventDefault();
-            draw(e);
-        }, { passive: false });
-        
-        maskCanvas.addEventListener('touchend', stopDrawing);
-
-        // --- 吸管功能邏輯 ---
-        function toggleEyedropper() {
-            isEyedropperActive = !isEyedropperActive;
-            if (isEyedropperActive) {
-                eyedropperBtn.classList.add('bg-blue-100', 'border-blue-500', 'text-blue-600');
-                maskCanvas.classList.add('cursor-pipette');
-            } else {
-                eyedropperBtn.classList.remove('bg-blue-100', 'border-blue-500', 'text-blue-600');
-                maskCanvas.classList.remove('cursor-pipette');
-            }
-        }
-
-        function pickColor(e) {
-            // 從 Preview Canvas (底圖) 取色
-            const pCanvas = document.getElementById('previewCanvas');
-            const pCtx = pCanvas.getContext('2d');
-            const point = getCanvasPoint(e, pCanvas);
-            
-            // 讀取像素
-            try {
-                const pixel = pCtx.getImageData(point.x, point.y, 1, 1).data;
-                const hex = "#" + ((1 << 24) + (pixel[0] << 16) + (pixel[1] << 8) + pixel[2]).toString(16).slice(1);
-                brushColorInput.value = hex;
-            } catch(err) { console.error("Pick color error", err); }
-            
-            // 關閉吸管，自動切回筆刷
-            toggleEyedropper();
-        }
-
+        // --- 4. Drawing Logic (Normalized Storage) ---
         function startDrawing(e) {
-            if (isEyedropperActive) {
-                pickColor(e);
-                return;
-            }
+            if (isEyedropper) { pickColor(e); return; }
+            if (editMode !== 'brush') return;
             isDrawing = true;
-            const point = getCanvasPoint(e, maskCanvas);
-            [lastX, lastY] = [point.x, point.y];
+            
+            const pt = getNormalizedPoint(e);
+            
+            // Normalized brush size (relative to 1000px base width)
+            // If canvas is 1000px, size 20 = 20px. If 2000px, size 20 = 40px.
+            const normSize = brushSizeInput.value / 1000;
+
+            // Start new stroke
+            pdfPages[currentIndex].strokes.push({
+                color: maskColorInput.value,
+                normSize: normSize,
+                points: [{x: pt.x, y: pt.y}]
+            });
+            
+            // Draw visual feedback (immediate)
+            // Need pixel coords for canvas context
+            const pixelX = pt.x * maskCanvas.width;
+            const pixelY = pt.y * maskCanvas.height;
+            const pixelSize = normSize * maskCanvas.width;
+
+            maskCtx.beginPath();
+            maskCtx.lineCap = 'round';
+            maskCtx.lineJoin = 'round';
+            maskCtx.lineWidth = pixelSize;
+            maskCtx.strokeStyle = maskColorInput.value;
+            maskCtx.moveTo(pixelX, pixelY);
+            maskCtx.stroke(); // Draw dot
+            
+            // Store last normalized point for lineTo
+            // We actually need pixel coords for drawing continuation
+            // But we push normalized coords to history
         }
 
         function draw(e) {
             if (!isDrawing) return;
-            const point = getCanvasPoint(e, maskCanvas);
-            drawStroke(point.x, point.y);
-        }
-
-        function drawStroke(x, y) {
-            maskCtx.lineJoin = 'round';
-            maskCtx.lineCap = 'round';
-            maskCtx.lineWidth = brushSizeInput.value;
-            maskCtx.strokeStyle = brushColorInput.value;
+            const pt = getNormalizedPoint(e);
             
+            const currentStroke = pdfPages[currentIndex].strokes.slice(-1)[0];
+            
+            // Use Pixel coords for drawing on screen
+            const pixelX = pt.x * maskCanvas.width;
+            const pixelY = pt.y * maskCanvas.height;
+            
+            // Get previous point (convert back to pixels)
+            const prevNorm = currentStroke.points[currentStroke.points.length - 1];
+            const prevPixelX = prevNorm.x * maskCanvas.width;
+            const prevPixelY = prevNorm.y * maskCanvas.height;
+
             maskCtx.beginPath();
-            maskCtx.moveTo(lastX, lastY);
-            maskCtx.lineTo(x, y);
+            maskCtx.lineCap = 'round';
+            maskCtx.lineJoin = 'round';
+            maskCtx.lineWidth = currentStroke.normSize * maskCanvas.width;
+            maskCtx.strokeStyle = currentStroke.color;
+            maskCtx.moveTo(prevPixelX, prevPixelY);
+            maskCtx.lineTo(pixelX, pixelY);
             maskCtx.stroke();
-            
-            [lastX, lastY] = [x, y];
+
+            // Store normalized point
+            currentStroke.points.push({x: pt.x, y: pt.y});
         }
 
-        function stopDrawing() {
-            if (isDrawing) {
-                isDrawing = false;
-                if (currentPageIndex !== -1) {
-                    pdfPages[currentPageIndex].maskData = maskCanvas.toDataURL();
+        function stopDrawing() { 
+            isDrawing = false;
+            checkAllDone();
+        }
+
+        function redrawStrokes(item) {
+            maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
+            if(!item.strokes) item.strokes = [];
+            
+            const w = maskCanvas.width;
+            const h = maskCanvas.height;
+
+            item.strokes.forEach(stroke => {
+                if(stroke.points.length < 1) return;
+                
+                maskCtx.beginPath();
+                maskCtx.lineCap = 'round';
+                maskCtx.lineJoin = 'round';
+                
+                // Scale normalized size to current canvas pixel width
+                maskCtx.lineWidth = stroke.normSize * w; 
+                maskCtx.strokeStyle = stroke.color;
+                
+                // Scale normalized points to current canvas pixel dims
+                const startX = stroke.points[0].x * w;
+                const startY = stroke.points[0].y * h;
+                
+                maskCtx.moveTo(startX, startY);
+                for(let i=1; i<stroke.points.length; i++) {
+                    const px = stroke.points[i].x * w;
+                    const py = stroke.points[i].y * h;
+                    maskCtx.lineTo(px, py);
+                }
+                maskCtx.stroke();
+            });
+        }
+
+        function undoLastStroke() {
+            if(currentIndex === -1) return;
+            const item = pdfPages[currentIndex];
+            if(item.strokes && item.strokes.length > 0) {
+                item.strokes.pop();
+                redrawStrokes(item);
+                checkAllDone();
+            }
+        }
+
+        // Event Listeners
+        maskCanvas.addEventListener('mousedown', startDrawing);
+        maskCanvas.addEventListener('mousemove', draw);
+        maskCanvas.addEventListener('mouseup', stopDrawing);
+        maskCanvas.addEventListener('mouseout', stopDrawing);
+        maskCanvas.addEventListener('touchstart', (e)=>{e.preventDefault(); startDrawing(e.touches[0])}, {passive:false});
+        maskCanvas.addEventListener('touchmove', (e)=>{e.preventDefault(); draw(e.touches[0])}, {passive:false});
+        maskCanvas.addEventListener('touchend', stopDrawing);
+
+        // --- 5. Other Interaction Logic ---
+        function toggleEyedropper() {
+            isEyedropper = !isEyedropper;
+            eyedropperBtn.classList.toggle('text-blue-600', isEyedropper);
+            eyedropperBtn.classList.toggle('bg-blue-100', isEyedropper);
+            maskCanvas.classList.toggle('cursor-pipette', isEyedropper);
+            if(isEyedropper) {
+                textOverlay.style.pointerEvents = 'none';
+                maskCanvas.style.pointerEvents = 'auto';
+            } else {
+                setMode(editMode); 
+            }
+        }
+
+        function pickColor(e) {
+            // Need pixel coords for getImageData
+            const rect = maskCanvas.getBoundingClientRect();
+            const scaleX = maskCanvas.width / rect.width;
+            const scaleY = maskCanvas.height / rect.height;
+            const x = (e.clientX - rect.left) * scaleX;
+            const y = (e.clientY - rect.top) * scaleY;
+
+            const ctx = pdfCanvas.getContext('2d');
+            const p = ctx.getImageData(x, y, 1, 1).data;
+            const hex = "#" + ((1 << 24) + (p[0] << 16) + (p[1] << 8) + p[2]).toString(16).slice(1);
+            maskColorInput.value = hex;
+            toggleEyedropper();
+        }
+
+        function setMode(mode) {
+            editMode = mode;
+            if (mode === 'select') {
+                btnModeSelect.className = "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition bg-white shadow text-blue-700";
+                btnModeBrush.className = "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition text-slate-500 hover:text-slate-700";
+                maskCanvas.style.pointerEvents = 'none'; 
+                textOverlay.style.pointerEvents = 'auto'; 
+                textOverlay.classList.remove('click-through'); 
+                textOverlay.style.opacity = '1';
+            } else {
+                btnModeSelect.className = "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition text-slate-500 hover:text-slate-700";
+                btnModeBrush.className = "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition bg-white shadow text-blue-700";
+                maskCanvas.style.pointerEvents = 'auto'; 
+                textOverlay.style.pointerEvents = 'none'; 
+                textOverlay.classList.add('click-through'); 
+                textOverlay.style.opacity = '0.5'; 
+            }
+        }
+
+        function mergeTextBlocks(blocks) {
+            if (!blocks || blocks.length === 0) return [];
+            let merged = JSON.parse(JSON.stringify(blocks));
+            for (let i = 0; i < merged.length - 1; i++) {
+                let curr = merged[i];
+                let next = merged[i+1];
+                let currBottom = curr.box_2d[2];
+                let nextTop = next.box_2d[0];
+                let dist = Math.abs(nextTop - currBottom);
+                let xDiff = Math.abs(curr.box_2d[1] - next.box_2d[1]);
+                if (dist < 35 && xDiff < 50 && curr.font_size === next.font_size) {
+                    curr.text += " " + next.text;
+                    curr.box_2d[2] = next.box_2d[2]; 
+                    curr.box_2d[3] = Math.max(curr.box_2d[3], next.box_2d[3]); 
+                    merged.splice(i+1, 1); 
+                    i--; 
                 }
             }
+            return merged;
+        }
+
+        function toggleMerge() {
+            if (currentIndex !== -1) renderPageWithZoom(pdfPages[currentIndex]);
+        }
+
+        function renderTextOverlay() {
+            textOverlay.innerHTML = '';
+            const item = pdfPages[currentIndex];
+            if (!item.displayData) return;
+
+            item.displayData.forEach((block, idx) => {
+                if (!block.box_2d) return;
+                const div = document.createElement('div');
+                const state = item.blockStates[idx] || 0; 
+                let cssClass = 'keep'; 
+                let title = '狀態：綠框 (保留原圖)';
+                if (state === 1) { cssClass = 'mask-text'; title = '狀態：紅框 (遮蓋+貼字)'; }
+                else if (state === 2) { cssClass = 'text-only'; title = '狀態：藍框 (僅貼字)'; }
+                div.className = `ocr-box ${cssClass}`;
+                
+                const y = block.box_2d[0] / 10;
+                const x = block.box_2d[1] / 10;
+                const h = (block.box_2d[2] - block.box_2d[0]) / 10;
+                const w = (block.box_2d[3] - block.box_2d[1]) / 10;
+                
+                div.style.top = `${y}%`; div.style.left = `${x}%`; div.style.width = `${w}%`; div.style.height = `${h}%`;
+                div.title = title;
+                div.onclick = (e) => {
+                    if(editMode !== 'select') return;
+                    e.stopPropagation();
+                    toggleBlockState(idx);
+                };
+                textOverlay.appendChild(div);
+            });
+        }
+
+        function toggleBlockState(blockIdx) {
+            const item = pdfPages[currentIndex];
+            const currentState = item.blockStates[blockIdx] || 0;
+            const nextState = (currentState + 1) % 3;
+            item.blockStates[blockIdx] = nextState;
+            renderTextOverlay();
+        }
+
+        async function analyzeCurrentPage() {
+            const key = apiKeyInput.value.trim();
+            if (!key) return alert('請輸入 API Key');
+            canvasLoader.classList.remove('hidden');
+            loaderText.textContent = "AI 分析排版中...";
+            try {
+                const base64 = pdfCanvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+                const prompt = `Analyze document layout. Identify all text blocks with TIGHT bounding boxes.
+                Return JSON Array ONLY. No markdown.
+                [{"text": "content", "box_2d": [ymin, xmin, ymax, xmax] (0-1000), "font_size": 12, "color": "hex", "is_bold": boolean, "align": "left"}]`;
+
+                let result = null;
+                for (const model of MODELS) {
+                    try {
+                        console.log("Trying model:", model);
+                        result = await callGemini(key, model, prompt, base64);
+                        break; 
+                    } catch (e) { console.warn(`Model ${model} failed:`, e); }
+                }
+                if (!result) throw new Error("AI 無回應");
+                const item = pdfPages[currentIndex];
+                item.rawData = result;
+                item.displayData = result; 
+                item.blockStates = new Array(result.length).fill(0); 
+                renderPageWithZoom(item);
+                updateStatus('success');
+                setMode('select');
+            } catch (e) {
+                alert('分析失敗: ' + e.message);
+                updateStatus('error');
+            } finally { canvasLoader.classList.add('hidden'); }
+        }
+
+        async function callGemini(key, model, text, imageBase64) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+            const payload = {
+                contents: [{ role: "user", parts: [{ text: text }, { inlineData: { mimeType: "image/jpeg", data: imageBase64 } }] }],
+                generationConfig: { responseMimeType: "application/json" }
+            };
+            const res = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error?.message);
+            try {
+                let raw = data.candidates[0].content.parts[0].text;
+                raw = raw.replace(/```json/g, '').replace(/```/g, '');
+                return JSON.parse(raw);
+            } catch(e) { throw new Error('JSON Parse Error'); }
         }
 
         function clearMask() {
-            maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
-            if (currentPageIndex !== -1) {
-                pdfPages[currentPageIndex].maskData = null;
-            }
-        }
-
-        function toggleRangeInput() {
-            const isCustom = document.querySelector('input[name="rangeType"][value="custom"]').checked;
-            document.getElementById('customRangeInput').disabled = !isCustom;
-            if (isCustom) document.getElementById('customRangeInput').focus();
-        }
-
-        function parsePageRange(str, totalPages) {
-            if (!str || !str.trim()) return [];
-            const pages = new Set();
-            const parts = str.split(',');
-            for (let part of parts) {
-                part = part.trim();
-                if (part.includes('-')) {
-                    const [start, end] = part.split('-').map(Number);
-                    if (!isNaN(start) && !isNaN(end)) {
-                        for (let i = start; i <= end; i++) pages.add(i);
-                    }
-                } else {
-                    const num = Number(part);
-                    if (!isNaN(num)) pages.add(num);
-                }
-            }
-            return Array.from(pages)
-                .filter(p => p >= 1 && p <= totalPages)
-                .map(p => p - 1)
-                .sort((a, b) => a - b);
-        }
-
-        fileInput.addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-
-            if (file.type !== 'application/pdf') {
-                alert('請上傳 PDF 檔案');
-                return;
-            }
-
-            const fileReader = new FileReader();
-            fileReader.onload = async function() {
-                const typedarray = new Uint8Array(this.result);
-                try {
-                    statusMsg.textContent = '讀取中...';
-                    statusMsg.classList.remove('hidden');
-                    
-                    pdfDoc = await pdfjsLib.getDocument(typedarray).promise;
-                    document.getElementById('pageCount').textContent = `共 ${pdfDoc.numPages} 頁`;
-                    document.getElementById('controlPanel').classList.remove('hidden');
-                    if(document.getElementById('rangeSelector')) document.getElementById('rangeSelector').classList.remove('hidden');
-                    
-                    await renderPageThumbnails();
-                    
-                    statusMsg.textContent = '完成';
-                    setTimeout(() => statusMsg.classList.add('hidden'), 3000);
-                    
-                } catch (error) {
-                    console.error(error);
-                    alert('讀取 PDF 失敗：' + error.message);
-                }
-            };
-            fileReader.readAsArrayBuffer(file);
-        });
-
-        async function renderPageThumbnails() {
-            pagesList.innerHTML = '';
-            pdfPages = [];
-
-            for (let i = 1; i <= pdfDoc.numPages; i++) {
-                const page = await pdfDoc.getPage(i);
-                const viewport = page.getViewport({ scale: 0.2 }); // Low res for thumbs
-                const canvas = document.createElement('canvas');
-                const context = canvas.getContext('2d');
-                canvas.height = viewport.height;
-                canvas.width = viewport.width;
-                // canvas.className = 'w-full h-auto border rounded mb-2 bg-white';
-                await page.render({ canvasContext: context, viewport: viewport }).promise;
-
-                // Card (Responsive Width)
-                const card = document.createElement('div');
-                card.className = 'page-card bg-white p-2 rounded shadow shrink-0 cursor-pointer w-24 md:w-full flex flex-col items-center gap-1';
-                card.onclick = () => selectPage(i - 1);
-                card.innerHTML = `
-                    <div class="flex justify-between items-center w-full">
-                        <span class="font-bold text-gray-500 text-xs">P.${i}</span>
-                        <span class="status-dot w-2 h-2 rounded-full bg-gray-300"></span>
-                    </div>
-                    <div class="thumb-container w-full rounded overflow-hidden border border-gray-200"></div>
-                `;
-                
-                canvas.style.width = '100%'; canvas.style.height = 'auto';
-                card.querySelector('.thumb-container').appendChild(canvas);
-                pagesList.appendChild(card);
-                
-                // 確保列表卡片也有圖示支援
-                if (typeof lucide !== 'undefined') lucide.createIcons({ root: card });
-
-                pdfPages.push({
-                    pageNum: i,
-                    thumbnail: canvas.toDataURL('image/jpeg'),
-                    status: 'idle',
-                    data: null,
-                    cardElement: card,
-                    maskData: null
-                });
-            }
-        }
-
-        async function selectPage(index) {
-            if (currentPageIndex !== -1 && currentPageIndex !== index) {
-                pdfPages[currentPageIndex].maskData = maskCanvas.toDataURL();
-            }
-
-            currentPageIndex = index;
-            const pageData = pdfPages[index];
-
-            document.querySelectorAll('.page-card').forEach(c => c.classList.remove('active'));
-            pageData.cardElement.classList.add('active');
-            
-            emptyState.classList.add('hidden');
-            previewArea.classList.remove('hidden');
-
-            // Render Preview Canvas
-            const page = await pdfDoc.getPage(pageData.pageNum);
-            // 手機上 scale 1.0 就夠清楚了，太大會lag，這裡設 1.5 保持品質
-            const viewport = page.getViewport({ scale: 1.5 });
-            
-            previewCanvas.width = viewport.width;
-            previewCanvas.height = viewport.height;
-            maskCanvas.width = viewport.width;
-            maskCanvas.height = viewport.height;
-            
-            const pCtx = previewCanvas.getContext('2d');
-            await page.render({ canvasContext: pCtx, viewport: viewport }).promise;
-
-            maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
-            if (pageData.maskData) {
-                const img = new Image();
-                img.onload = () => maskCtx.drawImage(img, 0, 0);
-                img.src = pageData.maskData;
-            }
-
-            if (pageData.data) {
-                document.getElementById('slideTitle').value = pageData.data.title || '';
-                document.getElementById('slideContent').value = (pageData.data.content || []).join('\n');
-                document.getElementById('slideNotes').value = pageData.data.speaker_notes || '';
-                updateStatusBadge('success');
-            } else {
-                document.getElementById('slideTitle').value = '';
-                document.getElementById('slideContent').value = '';
-                document.getElementById('slideNotes').value = '';
-                updateStatusBadge(pageData.status);
-            }
-        }
-
-        function updateStatusBadge(status) {
-            const badge = document.getElementById('currentStatusBadge');
-            const dot = pdfPages[currentPageIndex]?.cardElement.querySelector('.status-dot');
-            
-            if (status === 'success') {
-                badge.className = 'bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs';
-                badge.textContent = '已完成';
-                if(dot) dot.className = 'status-dot w-2 h-2 rounded-full bg-green-500';
-            } else if (status === 'loading') {
-                badge.className = 'bg-blue-100 text-blue-700 px-2 py-0.5 rounded text-xs';
-                badge.textContent = '分析中...';
-                if(dot) dot.className = 'status-dot w-2 h-2 rounded-full bg-blue-500 animate-pulse';
-            } else if (status === 'error') {
-                badge.className = 'bg-red-100 text-red-700 px-2 py-0.5 rounded text-xs';
-                badge.textContent = '失敗';
-                if(dot) dot.className = 'status-dot w-2 h-2 rounded-full bg-red-500';
-            } else {
-                badge.className = 'bg-gray-200 text-gray-600 px-2 py-0.5 rounded text-xs';
-                badge.textContent = '未分析';
-                if(dot) dot.className = 'status-dot w-2 h-2 rounded-full bg-gray-300';
-            }
-        }
-
-        // --- V5 Core API (Gemini 2.5) ---
-        async function analyzeSinglePage(index, event) {
-            if (event) event.stopPropagation(); 
-            
-            const key = apiKeyInput.value.trim();
-            if (!key) { alert('請先輸入 Google Gemini API Key'); return false; }
-
-            const pageItem = pdfPages[index];
-            updatePageUI(index, 'loading');
-            
-            if (!isAutoRunning) selectPage(index); 
-
-            try {
-                const page = await pdfDoc.getPage(pageItem.pageNum);
-                const viewport = page.getViewport({ scale: 1.0 }); 
-                const canvas = document.createElement('canvas');
-                canvas.width = viewport.width;
-                canvas.height = viewport.height;
-                const ctx = canvas.getContext('2d');
-                await page.render({ canvasContext: ctx, viewport: viewport }).promise;
-                // V5 Setting: 0.7 quality
-                const base64Image = canvas.toDataURL('image/jpeg', 0.7).split(',')[1];
-
-                const result = await callGeminiAPI(key, base64Image);
-                
-                pageItem.data = result;
-                updatePageUI(index, 'success');
-                
-                if (currentPageIndex === index) {
-                    document.getElementById('slideTitle').value = result.title || '';
-                    document.getElementById('slideContent').value = (result.content || []).join('\n');
-                    document.getElementById('slideNotes').value = result.speaker_notes || '';
-                }
-                
-                checkAllDone();
-                return true;
-
-            } catch (error) {
-                console.error(error);
-                updatePageUI(index, 'error');
-                if (currentPageIndex === index) updateStatusBadge('error');
-                if (!isAutoRunning) {
-                    alert(`分析失敗：${error.message}`);
-                }
-                return false;
-            }
-        }
-
-        async function callGeminiAPI(key, base64Image) {
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${key}`;
-            const prompt = `分析這張簡報圖片，提取內容並回傳純 JSON。嚴格格式：{"title": "標題", "content": ["重點1", "重點2"], "speaker_notes": "備忘稿"}`;
-
-            const payload = {
-                contents: [{
-                    role: "user",
-                    parts: [
-                        { text: prompt },
-                        { inlineData: { mimeType: "image/jpeg", data: base64Image } }
-                    ]
-                }],
-                generationConfig: { responseMimeType: "application/json" }
-            };
-
-            const response = await fetch(url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            const data = await response.json();
-            
-            if (!response.ok) {
-                if (response.status === 429) throw new Error('Google 流量限制 (429)');
-                throw new Error(data.error?.message || 'API 請求失敗');
-            }
-            try {
-                return JSON.parse(data.candidates[0].content.parts[0].text);
-            } catch (e) {
-                throw new Error('無法解析 JSON');
-            }
-        }
-
-        function updatePageUI(index, status) {
-            const item = pdfPages[index];
-            item.status = status;
-            
-            const badge = item.cardElement.querySelector('.status-badge');
-            // Logic handled in updateStatusBadge mainly for current view
-            
-            const dot = item.cardElement.querySelector('.status-dot');
-            if(status === 'success') dot.className = 'status-dot w-2 h-2 rounded-full bg-green-500';
-            else if(status === 'error') dot.className = 'status-dot w-2 h-2 rounded-full bg-red-500';
-            else if(status === 'loading') dot.className = 'status-dot w-2 h-2 rounded-full bg-blue-500 animate-pulse';
-        }
-
-        function saveCurrentSlide() {
-            if (currentPageIndex === -1) return;
-            const item = pdfPages[currentPageIndex];
-            item.maskData = maskCanvas.toDataURL();
-            
-            if (!item.data) item.data = {};
-            item.data.title = document.getElementById('slideTitle').value;
-            item.data.content = document.getElementById('slideContent').value.split('\n').filter(line => line.trim() !== '');
-            item.data.speaker_notes = document.getElementById('slideNotes').value;
-            
-            if (item.status !== 'success') {
-                item.status = 'success';
-                updateStatusBadge('success');
+            if(currentIndex !== -1) {
+                pdfPages[currentIndex].strokes = [];
+                redrawStrokes(pdfPages[currentIndex]);
             }
             checkAllDone();
-            
-            const btn = document.querySelector('button[onclick="saveCurrentSlide()"]');
-            const originalHTML = btn.innerHTML;
-            btn.textContent = '已儲存！';
-            setTimeout(() => { btn.innerHTML = originalHTML; if(typeof lucide!=='undefined') lucide.createIcons({root:btn}); }, 1000);
+        }
+
+        function updateStatus(state) {
+            const statusDiv = document.getElementById('statusText');
+            if (!pdfPages[currentIndex]) return;
+            const itemBadge = pdfPages[currentIndex].el.querySelector('.status-badge');
+            if (state === 'success') {
+                if(itemBadge) { itemBadge.textContent = '完成'; itemBadge.className = 'status-badge text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded-full inline-block'; }
+                const count = pdfPages[currentIndex].displayData ? pdfPages[currentIndex].displayData.length : 0;
+                if(statusDiv) statusDiv.textContent = `✅ 偵測到 ${count} 個區塊 (綠/紅/藍 切換)`;
+            } else if (state === 'error') {
+                if(itemBadge) { itemBadge.textContent = '失敗'; itemBadge.className = 'status-badge text-[10px] bg-red-100 text-red-600 px-2 py-1 rounded-full inline-block'; }
+            }
+            checkAllDone();
         }
 
         function checkAllDone() {
-            const hasSuccess = pdfPages.some(p => p.status === 'success');
-            document.getElementById('downloadBtn').disabled = !hasSuccess;
+            const hasData = pdfPages.some(p => p.rawData || (p.strokes && p.strokes.length > 0));
+            document.getElementById('downloadBtn').disabled = !hasData;
         }
 
         async function startAutoRun() {
             const key = apiKeyInput.value.trim();
-            if (!key) { alert('請輸入 API Key'); return; }
-
-            let pagesToProcess = [];
-            const rangeType = document.querySelector('input[name="rangeType"]:checked').value;
-            
-            if (rangeType === 'all') {
-                pagesToProcess = pdfPages.map((_, i) => i); 
-            } else {
-                const inputStr = document.getElementById('customRangeInput').value;
-                pagesToProcess = parsePageRange(inputStr, pdfPages.length);
-                if (pagesToProcess.length === 0) {
-                    alert('請輸入有效的頁數範圍');
-                    return;
-                }
-            }
-
-            isAutoRunning = true;
-            document.getElementById('autoRunBtn').classList.add('hidden');
-            document.getElementById('stopBtn').classList.remove('hidden');
-            statusMsg.classList.remove('hidden');
-
+            if (!key) return alert('請輸入 API Key');
             for (let i = 0; i < pdfPages.length; i++) {
-                if (!isAutoRunning) break;
-                if (!pagesToProcess.includes(i)) continue;
-                if (pdfPages[i].status === 'success') continue; 
-
-                statusMsg.textContent = `自動分析第 ${i+1} 頁...`;
-                pdfPages[i].cardElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-                await analyzeSinglePage(i);
-                
-                // Simple wait to prevent 429
-                if (isAutoRunning) await new Promise(r => setTimeout(r, 2000));
+                if (pdfPages[i].data) continue;
+                await loadPage(i);
+                await analyzeCurrentPage();
+                await new Promise(r => setTimeout(r, 2000));
             }
-            stopAutoRun();
-            statusMsg.textContent = '分析排程結束';
+            alert('批次處理完成！');
         }
-
-        function stopAutoRun() {
-            isAutoRunning = false;
-            document.getElementById('autoRunBtn').classList.remove('hidden');
-            document.getElementById('stopBtn').classList.add('hidden');
+        
+        function getFontForLanguage(text) {
+            if (/[\u4e00-\u9fa5]/.test(text)) return "Noto Sans TC"; 
+            return "Google Sans"; 
         }
 
         async function exportPPT() {
-            if (currentPageIndex !== -1) pdfPages[currentPageIndex].maskData = maskCanvas.toDataURL();
-            
             const btn = document.getElementById('downloadBtn');
-            btn.disabled = true;
-            btn.textContent = '處理中...';
-
+            btn.disabled = true; btn.textContent = '生成中...';
+            
             const pptx = new PptxGenJS();
             pptx.layout = 'LAYOUT_16x9';
-            
-            // 手機版/電腦版共用同一個 Checkbox ID (依據當前顯示的)
-            const useBgDesktop = document.getElementById('useBgImageDesktop');
-            const useBgMobile = document.getElementById('useBgImageMobile');
-            // 檢查是否存在，如果都不存在(理論上不應該)，預設 true
-            const useBg = (useBgDesktop && useBgDesktop.checked) || (useBgMobile && useBgMobile.checked);
+            const maskColorHex = maskColorInput.value.replace('#', '');
+            const slideWidth = 10;
+            const slideHeight = 5.625;
+            const slideRatio = slideWidth / slideHeight;
 
             for (let i = 0; i < pdfPages.length; i++) {
                 const page = pdfPages[i];
-                if (page.status !== 'success' && !page.data) continue;
-
+                if (!page.displayData && (!page.strokes || page.strokes.length === 0)) continue;
+                
                 const slide = pptx.addSlide();
-                const data = page.data || {};
 
-                if (useBg && pdfDoc) {
-                    try {
-                        const pdfPage = await pdfDoc.getPage(page.pageNum);
-                        const viewport = pdfPage.getViewport({ scale: 1.5 });
-                        const canvas = document.createElement('canvas');
-                        canvas.width = viewport.width; canvas.height = viewport.height;
-                        await pdfPage.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise;
-                        slide.background = { data: canvas.toDataURL('image/jpeg', 0.8) };
-                    } catch(e) {}
+                // 1. Background
+                let bgData = null;
+                try {
+                    const pdfPage = await pdfDoc.getPage(page.pageNum);
+                    const viewport = pdfPage.getViewport({ scale: 3.0 }); 
+                    const canvas = document.createElement('canvas');
+                    canvas.width = viewport.width; canvas.height = viewport.height;
+                    await pdfPage.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+                    bgData = canvas.toDataURL('image/jpeg', 1.0);
+                } catch(e) { bgData = page.thumb; }
+
+                const imgRatio = page.viewport.width / page.viewport.height;
+                let finalW, finalH, finalX, finalY;
+                if (imgRatio > slideRatio) {
+                    finalW = slideWidth; finalH = slideWidth / imgRatio; finalX = 0; finalY = (slideHeight - finalH) / 2;
+                } else {
+                    finalH = slideHeight; finalW = slideHeight * imgRatio; finalY = 0; finalX = (slideWidth - finalW) / 2;
+                }
+                slide.addImage({ data: bgData, x: finalX, y: finalY, w: finalW, h: finalH });
+
+                // 2. Brush Mask (Export using Normalized Coords)
+                if (page.strokes && page.strokes.length > 0) {
+                    const tempC = document.createElement('canvas');
+                    // Create high-res canvas for export to match BG quality
+                    const w = 1920; 
+                    const h = w / imgRatio;
+                    tempC.width = w;
+                    tempC.height = h;
+                    const tCtx = tempC.getContext('2d');
+                    
+                    page.strokes.forEach(stroke => {
+                        if(stroke.points.length < 1) return;
+                        tCtx.beginPath();
+                        tCtx.lineCap = 'round';
+                        tCtx.lineJoin = 'round';
+                        // Denormalize size
+                        tCtx.lineWidth = stroke.normSize * w; 
+                        tCtx.strokeStyle = stroke.color;
+                        
+                        // Denormalize points
+                        tCtx.moveTo(stroke.points[0].x * w, stroke.points[0].y * h);
+                        for(let k=1; k<stroke.points.length; k++) {
+                            tCtx.lineTo(stroke.points[k].x * w, stroke.points[k].y * h);
+                        }
+                        tCtx.stroke();
+                    });
+                    slide.addImage({ data: tempC.toDataURL(), x: finalX, y: finalY, w: finalW, h: finalH });
                 }
 
-                if (page.maskData) {
-                    slide.addImage({ data: page.maskData, x: 0, y: 0, w: '100%', h: '100%' });
-                }
+                // 3. Text
+                if (page.displayData) {
+                    page.displayData.forEach((block, idx) => {
+                        const state = page.blockStates ? page.blockStates[idx] : 0;
+                        const isReconstruct = page.reconstructIndices && page.reconstructIndices.includes(idx);
+                        if (!isReconstruct && state === 0) return; 
+                        if (!block.box_2d || block.box_2d.length < 4) return;
 
-                slide.addText(data.title || `Slide ${i+1}`, { 
-                    x: 0.5, y: 0.5, w: '90%', h: 1.2, 
-                    fontSize: 24, bold: true, color: '363636', fontFace: 'Arial', align: 'center' 
-                });
+                        const relX = block.box_2d[1] / 1000;
+                        const relY = block.box_2d[0] / 1000;
+                        const relW = (block.box_2d[3] - block.box_2d[1]) / 1000;
+                        const relH = (block.box_2d[2] - block.box_2d[0]) / 1000;
 
-                if (data.content && data.content.length > 0) {
-                    const items = data.content.map(text => ({ text: text, options: { fontSize: 18, breakLine: true } }));
-                    slide.addText(items, { 
-                        x: 0.5, y: 1.8, w: '90%', h: 4.5, 
-                        fontSize: 18, color: '505050', bullet: true, lineSpacing: 35, valign: 'top' 
+                        const pptX = finalX + (relX * finalW);
+                        const pptY = finalY + (relY * finalH);
+                        const pptW = relW * finalW;
+                        const pptH = relH * finalH;
+
+                        if (state === 1 || isReconstruct) {
+                            const padX = pptW * 0.05;
+                            const padY = pptH * 0.05;
+                            slide.addShape(pptx.ShapeType.rect, {
+                                x: pptX - padX, y: pptY - padY, w: pptW + (padX*2), h: pptH + (padY*2),
+                                fill: { color: maskColorHex }, line: { width: 0 } 
+                            });
+                        }
+                        
+                        let fontColor = '000000';
+                        if (block.color && typeof block.color === 'string') {
+                            const safeHex = block.color.replace('#', '').replace(/[^0-9A-Fa-f]/g, '');
+                            if (safeHex.length === 6) fontColor = safeHex;
+                        }
+
+                        let fontSize = typeof block.font_size === 'number' ? block.font_size : 12;
+                        if (fontSize > 100) fontSize = 24; 
+                        fontSize = Math.max(fontSize * 0.03, 8); 
+
+                        slide.addText(block.text || "", {
+                            x: pptX, y: pptY, w: pptW, h: pptH,
+                            fontSize: fontSize,
+                            color: fontColor,
+                            bold: block.is_bold || false,
+                            align: block.align || 'left',
+                            valign: 'top',
+                            fontFace: getFontForLanguage(block.text) 
+                        });
                     });
                 }
-                
-                if (data.speaker_notes) slide.addNotes(data.speaker_notes);
             }
-
-            pptx.writeFile({ fileName: 'NotebookLM_Restored.pptx' });
             
-            btn.disabled = false;
-            btn.innerHTML = '<i data-lucide="download" class="w-4 h-4"></i> <span class="hidden md:inline">下載 PPT</span><span class="md:hidden">下載</span>';
-            if (typeof lucide !== 'undefined') lucide.createIcons();
+            try {
+                await pptx.writeFile({ fileName: 'NotebookLM_V36_4_Fixed.pptx' });
+            } catch (err) {
+                console.error(err);
+                alert("匯出錯誤");
+            }
+            btn.disabled = false; btn.innerHTML = '<i data-lucide="download" class="w-4 h-4"></i> <span class="hidden sm:inline">下載 PPT</span>';
+            lucide.createIcons({ root: btn });
         }
     </script>
 </body>
