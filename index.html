@@ -2,8 +2,8 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>NotebookLM PDF 轉 PPT (V36.4 完美座標修正版)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover">
+    <title>NotebookLM 轉 PPT (V37.20 響應式優化版)</title>
     
     <link rel="manifest" href="manifest.json">
     <script>
@@ -15,18 +15,31 @@
     </script>
     
     <!-- Libraries -->
+    <!-- PDF.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <!-- PPTXGenJS -->
     <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+    <!-- JSZip (For PPTX Parsing) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    
     <script>
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     </script>
 
     <style>
-        body { font-family: 'Microsoft JhengHei', 'Noto Sans TC', sans-serif; background-color: #f3f4f6; height: 100vh; overflow: hidden; }
+        body { font-family: 'Noto Sans TC', 'Microsoft JhengHei', sans-serif; background-color: #f3f4f6; height: 100vh; overflow: hidden; }
         
-        .page-card { transition: all 0.2s; border: 2px solid transparent; cursor: pointer; }
+        /* Responsive Page Card */
+        .page-card { 
+            transition: all 0.2s; 
+            border: 2px solid transparent; 
+            cursor: pointer; 
+            width: 100%; /* Full width in container */
+        }
         .page-card:hover { transform: translateY(-2px); }
         .page-card.active { border-color: #2563eb; background-color: #eff6ff; }
         .page-card.done { border-color: #10b981; }
@@ -34,161 +47,259 @@
         canvas { touch-action: none; }
         .cursor-pipette { cursor: crosshair !important; }
 
-        /* Scrollbar Styling */
+        /* Custom Scrollbar */
         .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 3px; }
         .custom-scrollbar::-webkit-scrollbar-track { background-color: transparent; }
 
-        /* Slider Styling */
+        /* Slider */
         input[type="range"] {
-            -webkit-appearance: none;
-            appearance: none;
-            background: #cbd5e1;
-            border-radius: 5px;
-            outline: none;
-            height: 6px;
+            -webkit-appearance: none; appearance: none;
+            background: #cbd5e1; border-radius: 5px; outline: none; height: 6px;
         }
         input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 18px; 
-            height: 18px;
-            border-radius: 50%;
-            background: #2563eb;
-            cursor: pointer;
-            border: 2px solid white;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            -webkit-appearance: none; width: 18px; height: 18px;
+            border-radius: 50%; background: #2563eb; cursor: pointer;
+            border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+
+        /* Checkbox */
+        .toggle-checkbox:checked {
+            right: 0;
+            border-color: #68D391;
+        }
+        .toggle-checkbox:checked + .toggle-label {
+            background-color: #68D391;
         }
 
         /* OCR Box Styling */
-        .ocr-box { position: absolute; cursor: pointer; z-index: 40; transition: all 0.1s; }
+        .ocr-box { 
+            position: absolute; 
+            z-index: 40; 
+            border-radius: 2px; 
+            font-family: 'Noto Sans TC', sans-serif;
+            font-size: 12px;
+            overflow: hidden;
+            padding: 1px;
+            line-height: 1.2;
+            cursor: pointer; /* Default cursor for AI boxes */
+        }
+        
+        /* Manual Box Styling */
+        .ocr-box.manual {
+            background-color: rgba(255, 255, 255, 0.8) !important;
+            color: black !important;
+            border: 1px solid #666;
+            cursor: text; /* Text cursor for manual boxes */
+            overflow: visible; /* Allow text to be seen */
+            white-space: normal;
+        }
+
+        /* AI Box (No Text) Styling */
+        .ocr-box.ai {
+            color: transparent; /* Hide text */
+        }
+        
         .click-through .ocr-box { pointer-events: none !important; }
 
-        /* Green Box (Keep) */
-        .ocr-box.keep { border: 1px solid #22c55e; background-color: rgba(34, 197, 94, 0.05); }
-        .ocr-box.keep:hover { background-color: rgba(34, 197, 94, 0.2); box-shadow: 0 0 5px #22c55e; }
-
-        /* Red Box (Mask + Text) */
-        .ocr-box.mask-text { border-color: #ef4444; background-color: rgba(239, 68, 68, 0.2); }
-        .ocr-box.mask-text::after {
-            content: '重建'; position: absolute; top: -14px; right: 0;
-            background: #ef4444; color: white; font-size: 10px; padding: 1px 4px; border-radius: 4px;
+        /* Selected State */
+        .ocr-box.selected {
+            border: 2px solid #2563eb !important; 
+            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.3);
+            z-index: 60;
         }
-        .ocr-box.mask-text:hover { background-color: rgba(239, 68, 68, 0.3); box-shadow: 0 0 5px #ef4444; }
-
-        /* Blue Box (Text Only) */
-        .ocr-box.text-only { border-color: #3b82f6; background-color: rgba(59, 130, 246, 0.1); }
-        .ocr-box.text-only::after {
-            content: '僅貼字'; position: absolute; top: -14px; right: 0;
-            background: #3b82f6; color: white; font-size: 10px; padding: 1px 4px; border-radius: 4px;
+        
+        /* Resize Handle (Bottom Right) */
+        .resize-handle {
+            position: absolute;
+            width: 12px; height: 12px;
+            background-color: #2563eb;
+            border: 2px solid white;
+            bottom: -6px; right: -6px;
+            cursor: se-resize;
+            border-radius: 50%;
+            display: none; 
+            z-index: 61;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         }
-        .ocr-box.text-only:hover { background-color: rgba(59, 130, 246, 0.2); box-shadow: 0 0 5px #3b82f6; }
+        .ocr-box.selected .resize-handle { display: block; }
+
+        /* Move Handle (Top Center) - Only for Manual Boxes or Selected AI Boxes */
+        .move-handle {
+            position: absolute;
+            width: 24px; height: 24px; /* Larger touch target */
+            background-color: #2563eb;
+            top: -12px; left: 50%; transform: translateX(-50%);
+            cursor: move;
+            border-radius: 4px;
+            display: none; 
+            align-items: center; justify-content: center;
+            z-index: 62;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+        .move-handle::after {
+            content: '+'; color: white; font-size: 18px; font-weight: bold; line-height: 1;
+        }
+        /* Only show move handle for selected MANUAL boxes (AI boxes move by body drag) */
+        .ocr-box.manual.selected .move-handle { display: flex; }
+
+        /* Delete Handle (Top Right) - Only for Manual Boxes */
+        .delete-handle {
+            position: absolute;
+            width: 20px; height: 20px; /* Larger touch target */
+            background-color: #ef4444;
+            top: -10px; right: -10px;
+            cursor: pointer;
+            border-radius: 50%;
+            display: none;
+            align-items: center; justify-content: center;
+            z-index: 63;
+            border: 2px solid white;
+            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+        }
+        .delete-handle::after {
+            content: '×'; color: white; font-size: 14px; font-weight: bold; line-height: 1;
+        }
+        .ocr-box.manual.selected .delete-handle { display: flex; }
+
+        /* Green Box */
+        .ocr-box.keep { border: 1px solid #22c55e; background-color: rgba(34, 197, 94, 0.1); }
+        /* Red Box */
+        .ocr-box.reconstruct { border: 2px solid #ef4444; background-color: rgba(239, 68, 68, 0.15); }
+        /* Blue Box */
+        .ocr-box.overlay { border: 1px dashed #3b82f6; background-color: rgba(59, 130, 246, 0.1); }
 
         .loader {
             border: 3px solid #e5e7eb; border-top: 3px solid #2563eb; border-radius: 50%;
             width: 24px; height: 24px; animation: spin 1s linear infinite;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        /* Responsive Tweaks */
+        @media (max-width: 640px) {
+            .page-card { padding: 0.5rem; }
+            .ocr-box { border-width: 1px; } /* Thinner borders on mobile */
+            /* Hide sidebar on mobile by default or make it collapsible (simplified here: kept but small) */
+            #sidebar { width: 80px; } 
+            #sidebar .page-info { display: none; } /* Hide text info in sidebar on mobile */
+            #toolbar { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        }
     </style>
 </head>
-<body class="flex flex-col text-slate-800">
+<body class="flex flex-col text-slate-800 h-screen w-full overflow-hidden">
 
     <!-- Header -->
-    <header class="bg-white shadow-sm z-30 p-3 flex justify-between items-center shrink-0 h-16 relative">
+    <header class="bg-white shadow-sm z-30 p-2 sm:p-3 flex justify-between items-center shrink-0 h-14 sm:h-16 relative w-full">
         <div class="flex items-center gap-2">
-            <div class="bg-blue-600 text-white p-1.5 rounded-lg font-bold text-xl">N</div>
-            <h1 class="text-xl font-bold hidden sm:block">PDF 轉 PPT <span class="text-xs bg-purple-600 text-white px-2 py-0.5 rounded ml-1">V36.4 Fix</span></h1>
+            <div class="bg-indigo-600 text-white p-1 sm:p-1.5 rounded-lg font-bold text-lg sm:text-xl">V37.20</div>
+            <div class="flex flex-col">
+                <h1 class="text-base sm:text-lg font-bold leading-tight hidden sm:block">AI 視覺重繪版</h1>
+                <span class="text-[10px] text-slate-500 font-bold hidden sm:block">響應式優化 (手機/平板/電腦)</span>
+            </div>
         </div>
         
         <div class="flex items-center gap-2 sm:gap-3">
             <div class="flex flex-col items-end">
-                <input type="password" id="apiKey" class="border rounded px-2 py-1 text-sm w-32 sm:w-64 focus:border-blue-500 outline-none" placeholder="Gemini API Key">
+                <input type="password" id="apiKey" class="border rounded px-2 py-1 text-xs sm:text-sm w-24 sm:w-64 focus:border-indigo-500 outline-none transition" placeholder="Gemini API Key">
             </div>
             
-            <label class="bg-slate-700 hover:bg-slate-800 text-white px-3 py-2 rounded cursor-pointer flex items-center gap-2 text-sm shadow transition">
-                <i data-lucide="folder-open" class="w-4 h-4"></i> <span class="hidden sm:inline">開啟 PDF</span>
-                <input type="file" id="pdfInput" accept=".pdf" class="hidden">
+            <label class="bg-slate-800 hover:bg-slate-900 text-white px-2 sm:px-3 py-1.5 sm:py-2 rounded cursor-pointer flex items-center gap-2 text-xs sm:text-sm shadow transition">
+                <i data-lucide="folder-open" class="w-4 h-4"></i> <span class="hidden sm:inline">開啟 PDF/PPTX</span>
+                <input type="file" id="fileInput" accept=".pdf,.pptx" class="hidden">
             </label>
-            <button id="downloadBtn" onclick="exportPPT()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded flex items-center gap-2 text-sm shadow disabled:opacity-50 disabled:cursor-not-allowed transition" disabled>
+            <button id="downloadBtn" onclick="exportPPT()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2 sm:px-3 py-1.5 sm:py-2 rounded flex items-center gap-2 text-xs sm:text-sm shadow disabled:opacity-50 disabled:cursor-not-allowed transition" disabled>
                 <i data-lucide="download" class="w-4 h-4"></i> <span class="hidden sm:inline">下載 PPT</span>
             </button>
         </div>
     </header>
 
     <!-- Main -->
-    <div class="flex flex-1 overflow-hidden relative">
+    <div class="flex flex-1 overflow-hidden relative w-full">
         
-        <!-- Left: List -->
-        <div class="w-64 bg-white border-r flex flex-col shrink-0 z-20 shadow-sm">
-            <div class="p-3 border-b bg-slate-50 flex justify-between items-center">
-                <span id="pageCount" class="font-bold text-slate-600 text-xs">等待檔案...</span>
-                <button id="autoRunBtn" onclick="startAutoRun()" class="hidden text-blue-600 text-xs font-bold hover:underline">
-                    全部自動分析
+        <!-- Left: List (Responsive Width) -->
+        <div id="sidebar" class="w-20 sm:w-64 bg-white border-r flex flex-col shrink-0 z-20 shadow-sm transition-all duration-300">
+            <div class="p-2 sm:p-3 border-b bg-slate-50 flex justify-between items-center flex-wrap gap-1">
+                <span id="pageCount" class="font-bold text-slate-600 text-[10px] sm:text-xs">等待檔案...</span>
+                <button id="autoRunBtn" onclick="startAutoRun()" class="hidden text-indigo-600 text-[10px] sm:text-xs font-bold hover:underline">
+                    全部分析
                 </button>
             </div>
-            <div id="pagesList" class="flex-1 overflow-y-auto p-3 space-y-3 bg-slate-50 custom-scrollbar">
-                <div class="text-center text-slate-400 text-xs mt-10">請先上傳 PDF</div>
+            <div id="pagesList" class="flex-1 overflow-y-auto p-2 sm:p-3 space-y-2 sm:space-y-3 bg-slate-50 custom-scrollbar">
+                <div class="text-center text-slate-400 text-xs mt-10">
+                    <i data-lucide="file-up" class="w-6 h-6 sm:w-8 sm:h-8 mx-auto mb-2 opacity-50"></i>
+                    <span class="hidden sm:inline">請上傳 PDF 或 PPTX</span>
+                </div>
             </div>
         </div>
 
-        <!-- Right: Editor -->
-        <div class="flex-1 bg-slate-100 relative flex flex-col h-full overflow-hidden">
+        <!-- Right: Editor (Flex Grow) -->
+        <div class="flex-1 bg-slate-100 relative flex flex-col h-full overflow-hidden min-w-0">
             
-            <!-- Toolbar -->
-            <div id="toolbar" class="hidden bg-white p-2 shadow-sm border-b flex items-center justify-between gap-4 shrink-0 z-20 overflow-x-auto custom-scrollbar">
+            <!-- Toolbar (Scrollable on mobile) -->
+            <div id="toolbar" class="hidden bg-white p-2 shadow-sm border-b flex items-center gap-2 sm:gap-4 shrink-0 z-20 overflow-x-auto custom-scrollbar w-full whitespace-nowrap">
                 
                 <!-- Zoom & Mode -->
                 <div class="flex items-center gap-2 shrink-0">
                      <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
-                        <button onclick="changeZoom(-0.2)" class="p-1.5 rounded hover:bg-white transition text-slate-600" title="縮小">
-                            <i data-lucide="minus" class="w-4 h-4"></i>
-                        </button>
-                        <span id="zoomLabel" class="text-xs font-bold w-10 text-center select-none">100%</span>
-                        <button onclick="changeZoom(0.2)" class="p-1.5 rounded hover:bg-white transition text-slate-600" title="放大">
-                            <i data-lucide="plus" class="w-4 h-4"></i>
-                        </button>
+                        <button onclick="changeZoom(-0.2)" class="p-1.5 rounded hover:bg-white transition text-slate-600"><i data-lucide="minus" class="w-4 h-4"></i></button>
+                        <span id="zoomLabel" class="text-xs font-bold w-8 sm:w-10 text-center select-none">100%</span>
+                        <button onclick="changeZoom(0.2)" class="p-1.5 rounded hover:bg-white transition text-slate-600"><i data-lucide="plus" class="w-4 h-4"></i></button>
                     </div>
 
                     <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
-                        <button onclick="setMode('select')" id="btn-mode-select" class="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition bg-white shadow text-blue-700" title="選取模式">
+                        <button onclick="setMode('select')" id="btn-mode-select" class="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition bg-white shadow text-indigo-700" title="選取/手動調整模式">
                             <i data-lucide="mouse-pointer-2" class="w-4 h-4"></i>
                         </button>
-                        <button onclick="setMode('brush')" id="btn-mode-brush" class="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition text-slate-500 hover:text-slate-700" title="塗鴉模式">
+                        <button onclick="setMode('brush')" id="btn-mode-brush" class="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition text-slate-500 hover:text-slate-700" title="塗鴉/手動遮蓋模式">
                             <i data-lucide="brush" class="w-4 h-4"></i>
                         </button>
                     </div>
                     
-                    <label class="flex items-center gap-1 cursor-pointer bg-slate-50 border px-2 py-1.5 rounded-lg hover:bg-slate-100 transition shrink-0 select-none">
-                        <input type="checkbox" id="mergeToggle" class="rounded text-blue-600 focus:ring-blue-500" onchange="toggleMerge()">
-                        <span class="text-xs font-bold text-slate-600">合併段落</span>
+                    <label class="flex items-center gap-2 cursor-pointer bg-slate-50 border px-2 py-1.5 rounded-lg hover:bg-slate-100 transition select-none ml-2" title="自動合併相鄰的文字段落">
+                        <input type="checkbox" id="mergeToggle" class="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4" onchange="toggleMerge()" checked>
+                        <span class="text-xs font-bold text-slate-700 hidden sm:inline"><i data-lucide="merge" class="w-3 h-3 inline mr-1"></i>合併</span>
+                        <span class="text-xs font-bold text-slate-700 sm:hidden"><i data-lucide="merge" class="w-3 h-3"></i></span>
                     </label>
                 </div>
 
                 <!-- Tools -->
-                <div class="flex items-center gap-3 shrink-0">
-                    <button onclick="analyzeCurrentPage()" class="bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-indigo-100 transition border border-indigo-200 shadow-sm whitespace-nowrap">
-                        <i data-lucide="scan-text" class="w-4 h-4"></i> <span class="hidden xl:inline">分析排版</span><span class="xl:hidden">分析</span>
+                <div class="flex items-center gap-2 sm:gap-3 shrink-0">
+                    <button onclick="analyzeCurrentPage()" class="bg-indigo-50 text-indigo-700 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-indigo-100 transition border border-indigo-200 shadow-sm whitespace-nowrap">
+                        <i data-lucide="scan-eye" class="w-4 h-4"></i> <span class="hidden sm:inline">AI 辨識</span>
                     </button>
 
-                    <div class="flex items-center gap-2 border-l pl-3 bg-slate-50 p-1 rounded-lg border border-slate-200">
-                        <button id="eyedropperBtn" onclick="toggleEyedropper()" class="p-1.5 border rounded bg-white hover:bg-slate-100 text-slate-600 transition shadow-sm" title="吸管取色">
+                    <!-- Add Text Box -->
+                    <button onclick="addTextBox()" class="bg-emerald-50 text-emerald-700 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-emerald-100 transition border border-emerald-200 shadow-sm whitespace-nowrap" title="手動新增文字框">
+                        <i data-lucide="plus-square" class="w-4 h-4"></i> <span class="hidden sm:inline">新增框</span>
+                    </button>
+
+                    <div class="flex items-center gap-2 border-l pl-2 sm:pl-3 bg-slate-50 p-1 rounded-lg border border-slate-200">
+                        <button id="eyedropperBtn" onclick="toggleEyedropper()" class="p-1.5 border rounded bg-white hover:bg-slate-100 text-slate-600 transition shadow-sm" title="吸取背景色 (用於遮蓋)">
                             <i data-lucide="pipette" class="w-4 h-4"></i>
                         </button>
-                        <div class="relative w-8 h-8 rounded border overflow-hidden shadow-sm cursor-pointer hover:scale-105 transition">
-                             <input type="color" id="maskColor" value="#FFFFFF" class="absolute -top-2 -left-2 w-16 h-16 p-0 border-0 cursor-pointer" title="選擇顏色">
+                        <div class="relative w-8 h-8 rounded border overflow-hidden shadow-sm cursor-pointer hover:scale-105 transition" title="點擊選擇遮罩顏色 (會自動偵測)">
+                             <input type="color" id="maskColor" value="#FFFFFF" class="absolute -top-2 -left-2 w-16 h-16 p-0 border-0 cursor-pointer">
                         </div>
                         
                         <div class="w-px h-4 bg-slate-300 mx-1"></div>
                         
-                        <span class="text-xs font-bold text-slate-500 select-none">筆刷:</span>
-                        <!-- Wide Input Range for Visibility -->
-                        <div class="relative w-32 flex items-center px-2">
-                             <input type="range" id="brushSize" min="5" max="100" value="20" class="w-full h-6 cursor-pointer z-10" title="調整筆刷大小">
+                        <!-- Font Size Adjustment -->
+                        <div class="flex flex-col justify-center px-1">
+                             <span class="text-[9px] text-slate-400 font-bold mb-0.5 whitespace-nowrap">字體: <span id="fontScaleVal">1.0</span>x</span>
+                             <input type="range" id="fontScale" min="0.5" max="1.5" step="0.1" value="1.0" class="w-16 sm:w-20" oninput="document.getElementById('fontScaleVal').textContent=this.value">
                         </div>
-                        
-                        <button onclick="undoLastStroke()" class="text-slate-500 hover:text-blue-600 p-1.5 transition border rounded bg-white shadow-sm" title="復原上一筆 (Undo)">
+
+                        <!-- Mask Expansion Adjustment -->
+                        <div class="flex flex-col justify-center px-1 border-l pl-2 ml-1">
+                             <span class="text-[9px] text-red-400 font-bold mb-0.5 whitespace-nowrap">擴張: <span id="maskExpVal">1.2</span>x</span>
+                             <input type="range" id="maskExpansion" min="0.0" max="2.0" step="0.1" value="1.2" class="w-16 sm:w-20" oninput="document.getElementById('maskExpVal').textContent=this.value">
+                        </div>
+
+                        <div class="w-px h-4 bg-slate-300 mx-1"></div>
+
+                        <button onclick="undoLastStroke()" class="text-slate-500 hover:text-indigo-600 p-1.5 transition border rounded bg-white shadow-sm" title="復原上一筆">
                             <i data-lucide="undo-2" class="w-4 h-4"></i>
                         </button>
-                        
                         <button onclick="clearMask()" class="text-slate-400 hover:text-red-500 p-1.5 transition" title="清除所有塗鴉">
                             <i data-lucide="trash-2" class="w-4 h-4"></i>
                         </button>
@@ -196,43 +307,40 @@
                 </div>
             </div>
 
-            <!-- Preview Area (Fixed Scroll Issue) -->
-            <!-- Using display:flex + justify-center + align-items-start to ensure content is centered but scrollable without clipping -->
-            <div id="previewArea" class="flex-1 overflow-auto bg-slate-200 relative hidden p-8 custom-scrollbar flex flex-col items-center">
-                
-                <!-- Container: Margin auto centers it when smaller than viewport, allows scroll when larger -->
+            <!-- Preview Area (Responsive) -->
+            <div id="previewArea" class="flex-1 overflow-auto bg-slate-200 relative hidden p-2 sm:p-8 custom-scrollbar flex flex-col items-center w-full">
+                <!-- Canvas Container will be sized via JS -->
                 <div id="canvasContainer" class="relative shadow-2xl bg-white hidden flex-shrink-0 m-auto" style="width: 0; height: 0;">
-                    
-                    <!-- 1. PDF Layer -->
+                    <!-- 1. PDF/Image Layer -->
                     <canvas id="pdfCanvas" class="absolute top-0 left-0 w-full h-full z-10"></canvas>
-                    
-                    <!-- 2. Drawing Layer -->
+                    <!-- 2. Drawing Layer (Brush) -->
                     <canvas id="maskCanvas" class="absolute top-0 left-0 w-full h-full z-20 cursor-crosshair touch-none"></canvas>
-
-                    <!-- 3. Overlay Layer -->
+                    <!-- 3. AI Box Overlay -->
                     <div id="textOverlay" class="absolute top-0 left-0 w-full h-full z-30 pointer-events-none"></div>
 
                     <!-- Loader -->
                     <div id="canvasLoader" class="absolute inset-0 bg-white/90 z-50 hidden flex flex-col items-center justify-center backdrop-blur-sm">
                         <div class="loader mb-3"></div>
-                        <span class="text-sm font-bold text-slate-600 animate-pulse" id="loaderText">AI 運算中...</span>
+                        <span class="text-sm font-bold text-slate-600 animate-pulse" id="loaderText">AI 視覺運算中...</span>
                     </div>
                 </div>
             </div>
 
             <div id="emptyState" class="flex-1 flex flex-col items-center justify-center text-slate-400">
-                <i data-lucide="mouse-pointer-2" class="w-16 h-16 mb-4 opacity-20"></i>
-                <p class="text-sm font-bold opacity-60">請從左側列表選擇一頁開始編輯</p>
+                <i data-lucide="image-plus" class="w-12 h-12 sm:w-16 sm:h-16 mb-4 opacity-20"></i>
+                <p class="text-xs sm:text-sm font-bold opacity-60">請先上傳檔案</p>
             </div>
             
-            <div class="bg-white border-t p-2 px-4 flex justify-between items-center text-xs text-slate-500 shrink-0 z-20">
-                <div id="statusText">請上傳檔案</div>
-                <div class="font-bold flex gap-3 text-xs">
-                    <span class="text-green-600">🟩 原圖</span>
+            <div class="bg-white border-t p-2 px-4 flex justify-between items-center text-[10px] sm:text-xs text-slate-500 shrink-0 z-20 overflow-x-auto w-full">
+                <div id="statusText" class="whitespace-nowrap mr-2">等待操作</div>
+                <div class="font-bold flex gap-2 sm:gap-3 text-[10px] sm:text-xs whitespace-nowrap">
+                    <span class="text-green-600">🟩 保留</span>
                     <span class="text-gray-300">|</span>
-                    <span class="text-red-400">🟥 遮蓋+貼字</span>
+                    <span class="text-red-500">🟥 重建</span>
                     <span class="text-gray-300">|</span>
-                    <span class="text-blue-500">🟦 僅貼字(推薦)</span>
+                    <span class="text-blue-500">🟦 疊加</span>
+                    <span class="text-gray-300">|</span>
+                    <span class="text-slate-500">🖱️ 拖曳調整</span>
                 </div>
             </div>
         </div>
@@ -241,21 +349,25 @@
     <script>
         if (typeof lucide !== 'undefined') lucide.createIcons();
 
-        // State
+        // --- State ---
+        let currentFileMode = 'pdf'; 
         let pdfDoc = null;
-        let pdfPages = [];
+        let pptxSlides = [];
+        let pagesData = [];
         let currentIndex = -1;
         let editMode = 'select'; 
         let isDrawing = false;
         let isEyedropper = false;
         let zoomLevel = 1.0; 
-
-        // API Models
-        const MODELS = ["gemini-2.5-flash-preview-09-2025", "gemini-1.5-flash"];
-
-        // DOM Elements
+        
+        let selectedBlockIndex = -1;
+        let dragAction = null; 
+        let dragStart = { x: 0, y: 0 };
+        let activeBlockData = null; 
+        
+        // --- DOM ---
         const apiKeyInput = document.getElementById('apiKey');
-        const fileInput = document.getElementById('pdfInput');
+        const fileInput = document.getElementById('fileInput');
         const pagesList = document.getElementById('pagesList');
         const previewArea = document.getElementById('previewArea');
         const canvasContainer = document.getElementById('canvasContainer');
@@ -268,310 +380,318 @@
         const maskCanvas = document.getElementById('maskCanvas');
         const maskCtx = maskCanvas.getContext('2d');
         const canvasLoader = document.getElementById('canvasLoader');
-        const loaderText = document.getElementById('loaderText');
         const zoomLabel = document.getElementById('zoomLabel');
-        const mergeToggle = document.getElementById('mergeToggle');
         
         const maskColorInput = document.getElementById('maskColor');
-        const brushSizeInput = document.getElementById('brushSize');
         const eyedropperBtn = document.getElementById('eyedropperBtn');
         const btnModeSelect = document.getElementById('btn-mode-select');
         const btnModeBrush = document.getElementById('btn-mode-brush');
+        const mergeToggle = document.getElementById('mergeToggle');
+        const fontScaleInput = document.getElementById('fontScale');
+        const maskExpansionInput = document.getElementById('maskExpansion');
 
-        // --- 1. File Handling ---
+        // --- File Handling ---
         fileInput.onchange = async (e) => {
             const file = e.target.files[0];
             if (!file) return;
-            if (file.type !== 'application/pdf') return alert('請上傳 PDF');
+            const ext = file.name.split('.').pop().toLowerCase();
 
-            const reader = new FileReader();
-            reader.onload = async function() {
-                try {
-                    document.getElementById('pageCount').textContent = '讀取中...';
-                    pdfDoc = await pdfjsLib.getDocument(new Uint8Array(this.result)).promise;
-                    document.getElementById('pageCount').textContent = `共 ${pdfDoc.numPages} 頁`;
-                    document.getElementById('autoRunBtn').classList.remove('hidden');
-                    renderThumbnails();
-                } catch (e) { alert('PDF 讀取失敗: ' + e.message); }
-            };
-            reader.readAsArrayBuffer(file);
+            document.getElementById('pageCount').textContent = '讀取中...';
+            pagesList.innerHTML = '';
+            pagesData = [];
+            currentIndex = -1;
+            selectedBlockIndex = -1;
+            emptyState.classList.remove('hidden');
+            previewArea.classList.add('hidden');
+            toolbar.classList.add('hidden');
+
+            try {
+                if (ext === 'pdf') {
+                    currentFileMode = 'pdf';
+                    await handlePDF(file);
+                } else if (ext === 'pptx') {
+                    currentFileMode = 'pptx';
+                    await handlePPTX(file);
+                } else {
+                    alert('不支援的格式');
+                }
+            } catch (err) {
+                console.error(err);
+                alert('檔案讀取失敗: ' + err.message);
+            }
         };
+
+        async function handlePDF(file) {
+            const buffer = await file.arrayBuffer();
+            pdfDoc = await pdfjsLib.getDocument(new Uint8Array(buffer)).promise;
+            document.getElementById('pageCount').textContent = `PDF 共 ${pdfDoc.numPages} 頁`;
+            document.getElementById('autoRunBtn').classList.remove('hidden');
+            
+            for (let i = 1; i <= pdfDoc.numPages; i++) {
+                pagesData.push({
+                    pageNum: i,
+                    type: 'pdf',
+                    rawData: null,
+                    displayData: null,
+                    blockStates: [],
+                    strokes: [],
+                    viewport: null,
+                    thumbUrl: null
+                });
+            }
+            renderThumbnails();
+        }
+
+        async function handlePPTX(file) {
+            const zip = new JSZip();
+            await zip.loadAsync(file);
+            const mediaFolder = zip.folder("ppt/media");
+            const imgFiles = [];
+            if (mediaFolder) {
+                mediaFolder.forEach((relativePath, file) => {
+                    if (relativePath.match(/\.(jpg|jpeg|png)$/i)) {
+                        imgFiles.push({ path: relativePath, file: file });
+                    }
+                });
+            }
+            imgFiles.sort((a, b) => {
+                const numA = parseInt(a.path.match(/\d+/)?.[0] || 0);
+                const numB = parseInt(b.path.match(/\d+/)?.[0] || 0);
+                return numA - numB;
+            });
+            if (imgFiles.length === 0) throw new Error("此 PPTX 中未發現圖片");
+            document.getElementById('pageCount').textContent = `PPTX 圖片: ${imgFiles.length} 張`;
+            document.getElementById('autoRunBtn').classList.remove('hidden');
+            pptxSlides = [];
+            for (let i = 0; i < imgFiles.length; i++) {
+                const blob = await imgFiles[i].file.async("blob");
+                const url = URL.createObjectURL(blob);
+                pptxSlides.push(url);
+                pagesData.push({
+                    pageNum: i + 1,
+                    type: 'pptx',
+                    imgUrl: url,
+                    rawData: null,
+                    displayData: null,
+                    blockStates: [],
+                    strokes: [],
+                    viewport: null,
+                    thumbUrl: null
+                });
+            }
+            renderThumbnails();
+        }
 
         async function renderThumbnails() {
             pagesList.innerHTML = '';
-            pdfPages = [];
-            
-            for (let i = 1; i <= pdfDoc.numPages; i++) {
-                const page = await pdfDoc.getPage(i);
-                const viewport = page.getViewport({ scale: 0.2 });
-                const canvas = document.createElement('canvas');
-                canvas.width = viewport.width; canvas.height = viewport.height;
-                await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-
+            for (let i = 0; i < pagesData.length; i++) {
+                const item = pagesData[i];
                 const div = document.createElement('div');
                 div.className = 'page-card bg-white p-2 rounded-lg shadow-sm border border-slate-200 flex items-center gap-3 hover:bg-blue-50';
+                
+                let thumbSrc = '';
+                try {
+                    if (item.type === 'pdf') {
+                        const page = await pdfDoc.getPage(item.pageNum);
+                        const vp = page.getViewport({ scale: 0.15 });
+                        const cvs = document.createElement('canvas');
+                        cvs.width = vp.width; cvs.height = vp.height;
+                        await page.render({ canvasContext: cvs.getContext('2d'), viewport: vp }).promise;
+                        thumbSrc = cvs.toDataURL();
+                        item.viewport = page.getViewport({ scale: 1.0 });
+                    } else {
+                        thumbSrc = item.imgUrl;
+                        const img = new Image();
+                        img.src = item.imgUrl;
+                        await img.decode();
+                        item.viewport = { width: img.naturalWidth, height: img.naturalHeight };
+                    }
+                } catch(e) { console.error("Thumb error", e); continue; }
+
+                item.thumbUrl = thumbSrc;
                 div.innerHTML = `
-                    <div class="font-bold text-slate-400 text-xs w-6">P.${i}</div>
-                    <img src="${canvas.toDataURL()}" class="h-12 w-auto border border-slate-200 rounded">
-                    <div class="flex-1 text-right">
+                    <div class="font-bold text-slate-400 text-xs w-6">${i+1}</div>
+                    <img src="${thumbSrc}" class="h-10 w-auto sm:h-12 border border-slate-200 rounded object-contain bg-white">
+                    <div class="flex-1 text-right page-info">
                         <div class="status-badge text-[10px] bg-slate-100 text-slate-500 px-2 py-1 rounded-full inline-block">未分析</div>
                     </div>
                 `;
-                div.onclick = () => loadPage(i - 1);
+                div.onclick = () => loadPage(i);
+                item.el = div;
                 pagesList.appendChild(div);
-
-                pdfPages.push({ 
-                    pageNum: i, 
-                    el: div, 
-                    rawData: null,  
-                    displayData: null,
-                    blockStates: [],
-                    viewport: page.getViewport({ scale: 1.0 }),
-                    strokes: [] // Store Normalized strokes
-                });
             }
         }
 
-        // --- 2. Load & Zoom Logic ---
+        // --- Editor Logic ---
         async function loadPage(index) {
             currentIndex = index;
-            const item = pdfPages[index];
-
+            selectedBlockIndex = -1;
+            const item = pagesData[index];
             document.querySelectorAll('.page-card').forEach(c => c.classList.remove('active'));
             item.el.classList.add('active');
-            
             emptyState.classList.add('hidden');
             previewArea.classList.remove('hidden');
             toolbar.classList.remove('hidden');
-
             renderPageWithZoom(item);
         }
 
         async function renderPageWithZoom(item) {
-            const pdfW = item.viewport.width;
-            const pdfH = item.viewport.height;
-            const ratio = pdfW / pdfH;
-            
-            // Calculate base dimensions relative to viewport to ensure good fit
-            const baseW = window.innerWidth * 0.7; 
-            const baseH = window.innerHeight * 0.8;
-            
-            let finalW, finalH;
-            if (baseW / baseH > ratio) {
-                 finalH = baseH * zoomLevel;
-                 finalW = finalH * ratio;
-            } else {
-                 finalW = baseW * zoomLevel;
-                 finalH = finalW / ratio;
+            try {
+                if(!item.viewport) return; 
+
+                // Responsive Canvas Logic
+                const isMobile = window.innerWidth < 640;
+                // On mobile, use 90% width. On Desktop, use 70% width or fixed ratio.
+                const baseW = isMobile ? window.innerWidth * 0.9 : window.innerWidth * 0.7;
+                const baseH = isMobile ? window.innerHeight * 0.6 : window.innerHeight * 0.8;
+                
+                const ratio = item.viewport.width / item.viewport.height;
+                let finalW, finalH;
+                if (baseW / baseH > ratio) {
+                     finalH = baseH * zoomLevel; finalW = finalH * ratio;
+                } else {
+                     finalW = baseW * zoomLevel; finalH = finalW / ratio;
+                }
+
+                canvasContainer.style.width = `${finalW}px`;
+                canvasContainer.style.height = `${finalH}px`;
+                canvasContainer.classList.remove('hidden');
+
+                const scale = 2.0 * zoomLevel;
+                pdfCanvas.width = item.viewport.width * scale; 
+                pdfCanvas.height = item.viewport.height * scale;
+                maskCanvas.width = pdfCanvas.width;
+                maskCanvas.height = pdfCanvas.height;
+
+                const ctx = pdfCanvas.getContext('2d');
+                ctx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
+
+                if (item.type === 'pdf') {
+                    const page = await pdfDoc.getPage(item.pageNum);
+                    await page.render({ canvasContext: ctx, viewport: page.getViewport({ scale: scale * (item.viewport.width / page.getViewport({scale:1}).width) }) }).promise;
+                } else {
+                    const img = new Image();
+                    img.src = item.imgUrl;
+                    await img.decode();
+                    ctx.drawImage(img, 0, 0, pdfCanvas.width, pdfCanvas.height);
+                }
+
+                autoPickBackgroundColor();
+                redrawStrokes(item);
+                if (!item.displayData && item.rawData) processData(item);
+                renderTextOverlay(item);
+                updateStatus(item);
+                setMode(editMode);
+            } catch (err) {
+                console.error("Render Error:", err);
             }
-
-            // Apply size to container
-            canvasContainer.style.width = `${finalW}px`;
-            canvasContainer.style.height = `${finalH}px`;
-            canvasContainer.classList.remove('hidden');
-
-            // Set canvas internal resolution based on zoom (Sharper text)
-            const scale = 2.0 * zoomLevel; 
-            pdfCanvas.width = pdfW * scale;
-            pdfCanvas.height = pdfH * scale;
-            maskCanvas.width = pdfW * scale;
-            maskCanvas.height = pdfH * scale;
-
-            // Render PDF
-            const page = await pdfDoc.getPage(item.pageNum);
-            await page.render({ 
-                canvasContext: pdfCanvas.getContext('2d'), 
-                viewport: page.getViewport({ scale: scale }) 
-            }).promise;
-
-            // Redraw Strokes using Normalized Coordinates (CRITICAL FIX)
-            redrawStrokes(item);
-
-            // Handle Merging
-            if (mergeToggle.checked) {
-                item.displayData = mergeTextBlocks(item.rawData);
-            } else {
-                item.displayData = item.rawData;
-            }
-            
-            if (item.displayData && item.blockStates.length !== item.displayData.length) {
-                 item.blockStates = new Array(item.displayData.length).fill(0);
-            }
-
-            renderTextOverlay();
-            updateStatus(item.rawData ? 'success' : 'idle');
-            setMode(editMode); 
+        }
+        
+        function autoPickBackgroundColor() {
+            if (!pdfCanvas) return;
+            try {
+                const ctx = pdfCanvas.getContext('2d');
+                if (pdfCanvas.width > 10) {
+                    const p = ctx.getImageData(10, 10, 1, 1).data; 
+                    const hex = "#" + ((1 << 24) + (p[0] << 16) + (p[1] << 8) + p[2]).toString(16).slice(1);
+                    maskColorInput.value = hex;
+                }
+            } catch(e) {}
         }
 
         function changeZoom(delta) {
             zoomLevel = Math.max(0.5, Math.min(zoomLevel + delta, 3.0));
             zoomLabel.textContent = `${Math.round(zoomLevel * 100)}%`;
-            if (currentIndex !== -1) {
-                renderPageWithZoom(pdfPages[currentIndex]);
-            }
+            if (currentIndex !== -1) renderPageWithZoom(pagesData[currentIndex]);
         }
 
-        // --- 3. Coordinate Logic (Normalization) ---
-        // Converts Screen Event -> Normalized Coordinates (0.0 to 1.0)
+        // --- Interaction Handlers ---
+        // (Similar to previous, but optimized for responsiveness)
+        // ... (Keep existing interaction functions like getNormalizedPoint, startDrawing, draw, stopDrawing, redrawStrokes, undo/clear, toggleEyedropper, pickColor) ...
+        
         function getNormalizedPoint(e) {
             const rect = maskCanvas.getBoundingClientRect();
-            // Offset inside the element
-            const offsetX = e.clientX - rect.left;
-            const offsetY = e.clientY - rect.top;
-            
-            // Normalize: 0.0 (left/top) to 1.0 (right/bottom)
-            return {
-                x: offsetX / rect.width,
-                y: offsetY / rect.height
-            };
+            // Handle touch event fallback
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            return { x: (clientX - rect.left) / rect.width, y: (clientY - rect.top) / rect.height };
         }
 
-        // --- 4. Drawing Logic (Normalized Storage) ---
         function startDrawing(e) {
             if (isEyedropper) { pickColor(e); return; }
             if (editMode !== 'brush') return;
             isDrawing = true;
-            
             const pt = getNormalizedPoint(e);
+            const normSize = 25 / 1000; 
+            pagesData[currentIndex].strokes.push({ color: maskColorInput.value, normSize, points: [pt] });
             
-            // Normalized brush size (relative to 1000px base width)
-            // If canvas is 1000px, size 20 = 20px. If 2000px, size 20 = 40px.
-            const normSize = brushSizeInput.value / 1000;
-
-            // Start new stroke
-            pdfPages[currentIndex].strokes.push({
-                color: maskColorInput.value,
-                normSize: normSize,
-                points: [{x: pt.x, y: pt.y}]
-            });
-            
-            // Draw visual feedback (immediate)
-            // Need pixel coords for canvas context
-            const pixelX = pt.x * maskCanvas.width;
-            const pixelY = pt.y * maskCanvas.height;
-            const pixelSize = normSize * maskCanvas.width;
-
-            maskCtx.beginPath();
-            maskCtx.lineCap = 'round';
-            maskCtx.lineJoin = 'round';
-            maskCtx.lineWidth = pixelSize;
-            maskCtx.strokeStyle = maskColorInput.value;
-            maskCtx.moveTo(pixelX, pixelY);
-            maskCtx.stroke(); // Draw dot
-            
-            // Store last normalized point for lineTo
-            // We actually need pixel coords for drawing continuation
-            // But we push normalized coords to history
+            const w = maskCanvas.width; const h = maskCanvas.height;
+            maskCtx.beginPath(); maskCtx.lineCap = 'round'; maskCtx.lineJoin = 'round';
+            maskCtx.lineWidth = normSize * w; maskCtx.strokeStyle = maskColorInput.value;
+            maskCtx.moveTo(pt.x * w, pt.y * h); maskCtx.lineTo(pt.x * w, pt.y * h); maskCtx.stroke();
         }
 
         function draw(e) {
             if (!isDrawing) return;
             const pt = getNormalizedPoint(e);
+            const stroke = pagesData[currentIndex].strokes.slice(-1)[0];
+            stroke.points.push(pt);
             
-            const currentStroke = pdfPages[currentIndex].strokes.slice(-1)[0];
+            const w = maskCanvas.width; const h = maskCanvas.height;
+            const prev = stroke.points[stroke.points.length - 2];
             
-            // Use Pixel coords for drawing on screen
-            const pixelX = pt.x * maskCanvas.width;
-            const pixelY = pt.y * maskCanvas.height;
-            
-            // Get previous point (convert back to pixels)
-            const prevNorm = currentStroke.points[currentStroke.points.length - 1];
-            const prevPixelX = prevNorm.x * maskCanvas.width;
-            const prevPixelY = prevNorm.y * maskCanvas.height;
-
-            maskCtx.beginPath();
-            maskCtx.lineCap = 'round';
-            maskCtx.lineJoin = 'round';
-            maskCtx.lineWidth = currentStroke.normSize * maskCanvas.width;
-            maskCtx.strokeStyle = currentStroke.color;
-            maskCtx.moveTo(prevPixelX, prevPixelY);
-            maskCtx.lineTo(pixelX, pixelY);
-            maskCtx.stroke();
-
-            // Store normalized point
-            currentStroke.points.push({x: pt.x, y: pt.y});
+            maskCtx.beginPath(); maskCtx.lineCap = 'round'; maskCtx.lineJoin = 'round';
+            maskCtx.lineWidth = stroke.normSize * w; maskCtx.strokeStyle = stroke.color;
+            maskCtx.moveTo(prev.x * w, prev.y * h); maskCtx.lineTo(pt.x * w, pt.y * h); maskCtx.stroke();
         }
 
-        function stopDrawing() { 
-            isDrawing = false;
-            checkAllDone();
-        }
+        function stopDrawing() { isDrawing = false; checkAllDone(); }
 
         function redrawStrokes(item) {
             maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
-            if(!item.strokes) item.strokes = [];
-            
-            const w = maskCanvas.width;
-            const h = maskCanvas.height;
-
-            item.strokes.forEach(stroke => {
-                if(stroke.points.length < 1) return;
-                
-                maskCtx.beginPath();
-                maskCtx.lineCap = 'round';
-                maskCtx.lineJoin = 'round';
-                
-                // Scale normalized size to current canvas pixel width
-                maskCtx.lineWidth = stroke.normSize * w; 
-                maskCtx.strokeStyle = stroke.color;
-                
-                // Scale normalized points to current canvas pixel dims
-                const startX = stroke.points[0].x * w;
-                const startY = stroke.points[0].y * h;
-                
-                maskCtx.moveTo(startX, startY);
-                for(let i=1; i<stroke.points.length; i++) {
-                    const px = stroke.points[i].x * w;
-                    const py = stroke.points[i].y * h;
-                    maskCtx.lineTo(px, py);
-                }
+            const w = maskCanvas.width; const h = maskCanvas.height;
+            item.strokes.forEach(s => {
+                if (s.points.length < 1) return;
+                maskCtx.beginPath(); maskCtx.lineCap = 'round'; maskCtx.lineJoin = 'round';
+                maskCtx.lineWidth = s.normSize * w; maskCtx.strokeStyle = s.color;
+                maskCtx.moveTo(s.points[0].x * w, s.points[0].y * h);
+                for (let i=1; i<s.points.length; i++) maskCtx.lineTo(s.points[i].x * w, s.points[i].y * h);
                 maskCtx.stroke();
             });
         }
 
         function undoLastStroke() {
-            if(currentIndex === -1) return;
-            const item = pdfPages[currentIndex];
-            if(item.strokes && item.strokes.length > 0) {
-                item.strokes.pop();
-                redrawStrokes(item);
-                checkAllDone();
-            }
+            if (currentIndex === -1) return;
+            pagesData[currentIndex].strokes.pop();
+            redrawStrokes(pagesData[currentIndex]);
+        }
+        
+        function clearMask() {
+            if (currentIndex === -1) return;
+            pagesData[currentIndex].strokes = [];
+            redrawStrokes(pagesData[currentIndex]);
         }
 
-        // Event Listeners
-        maskCanvas.addEventListener('mousedown', startDrawing);
-        maskCanvas.addEventListener('mousemove', draw);
-        maskCanvas.addEventListener('mouseup', stopDrawing);
-        maskCanvas.addEventListener('mouseout', stopDrawing);
-        maskCanvas.addEventListener('touchstart', (e)=>{e.preventDefault(); startDrawing(e.touches[0])}, {passive:false});
-        maskCanvas.addEventListener('touchmove', (e)=>{e.preventDefault(); draw(e.touches[0])}, {passive:false});
-        maskCanvas.addEventListener('touchend', stopDrawing);
-
-        // --- 5. Other Interaction Logic ---
         function toggleEyedropper() {
             isEyedropper = !isEyedropper;
-            eyedropperBtn.classList.toggle('text-blue-600', isEyedropper);
             eyedropperBtn.classList.toggle('bg-blue-100', isEyedropper);
             maskCanvas.classList.toggle('cursor-pipette', isEyedropper);
-            if(isEyedropper) {
-                textOverlay.style.pointerEvents = 'none';
-                maskCanvas.style.pointerEvents = 'auto';
-            } else {
-                setMode(editMode); 
-            }
+            maskCanvas.style.pointerEvents = isEyedropper ? 'auto' : (editMode === 'brush' ? 'auto' : 'none');
+            textOverlay.style.pointerEvents = isEyedropper ? 'none' : (editMode === 'select' ? 'auto' : 'none');
         }
 
         function pickColor(e) {
-            // Need pixel coords for getImageData
             const rect = maskCanvas.getBoundingClientRect();
-            const scaleX = maskCanvas.width / rect.width;
-            const scaleY = maskCanvas.height / rect.height;
-            const x = (e.clientX - rect.left) * scaleX;
-            const y = (e.clientY - rect.top) * scaleY;
-
-            const ctx = pdfCanvas.getContext('2d');
-            const p = ctx.getImageData(x, y, 1, 1).data;
+            // Handle touch event fallback
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            
+            const scaleX = pdfCanvas.width / rect.width;
+            const scaleY = pdfCanvas.height / rect.height;
+            const x = (clientX - rect.left) * scaleX;
+            const y = (clientY - rect.top) * scaleY;
+            
+            const p = pdfCanvas.getContext('2d').getImageData(x, y, 1, 1).data;
             const hex = "#" + ((1 << 24) + (p[0] << 16) + (p[1] << 8) + p[2]).toString(16).slice(1);
             maskColorInput.value = hex;
             toggleEyedropper();
@@ -579,305 +699,507 @@
 
         function setMode(mode) {
             editMode = mode;
-            if (mode === 'select') {
-                btnModeSelect.className = "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition bg-white shadow text-blue-700";
-                btnModeBrush.className = "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition text-slate-500 hover:text-slate-700";
-                maskCanvas.style.pointerEvents = 'none'; 
-                textOverlay.style.pointerEvents = 'auto'; 
-                textOverlay.classList.remove('click-through'); 
-                textOverlay.style.opacity = '1';
+            btnModeSelect.className = mode==='select' ? "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition bg-white shadow text-indigo-700" : "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition text-slate-500";
+            btnModeBrush.className = mode==='brush' ? "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition bg-white shadow text-indigo-700" : "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition text-slate-500";
+            
+            maskCanvas.style.pointerEvents = mode === 'brush' ? 'auto' : 'none';
+            textOverlay.style.pointerEvents = mode === 'select' ? 'auto' : 'none';
+            textOverlay.classList.toggle('click-through', mode !== 'select');
+            textOverlay.style.opacity = mode === 'select' ? '1' : '0.4';
+            
+            if (mode === 'brush') {
+                selectedBlockIndex = -1;
+                if(currentIndex !== -1) renderTextOverlay(pagesData[currentIndex]);
+            }
+        }
+
+        // --- Core Logic ---
+        function addTextBox() {
+            if (currentIndex === -1) {
+                alert("請先上傳並選擇一個頁面");
+                return;
+            }
+            const item = pagesData[currentIndex];
+            if (!item.displayData) item.displayData = []; 
+
+            // Add new block at center (relative 0-1000)
+            const newBlock = {
+                text: "新增文字",
+                box_2d: [450, 400, 500, 600], 
+                font_size: 12,
+                color: "#000000",
+                is_bold: false,
+                align: "left",
+                isManual: true 
+            };
+            
+            item.displayData.push(newBlock);
+            item.blockStates.push(1); 
+            renderTextOverlay(item);
+            selectedBlockIndex = item.displayData.length - 1;
+            renderTextOverlay(item); 
+        }
+        
+        function deleteBlock(index) {
+            const item = pagesData[currentIndex];
+            item.displayData.splice(index, 1);
+            item.blockStates.splice(index, 1);
+            selectedBlockIndex = -1;
+            renderTextOverlay(item);
+            updateStatus(item);
+        }
+
+        function toggleMerge() {
+            if (currentIndex !== -1) {
+                const item = pagesData[currentIndex];
+                processData(item);
+                renderTextOverlay(item);
+            }
+        }
+
+        function processData(item) {
+            if (!item.rawData) return;
+            const shouldMerge = mergeToggle.checked;
+            
+            if (shouldMerge) {
+                item.displayData = mergeTextBlocks(JSON.parse(JSON.stringify(item.rawData)));
             } else {
-                btnModeSelect.className = "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition text-slate-500 hover:text-slate-700";
-                btnModeBrush.className = "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition bg-white shadow text-blue-700";
-                maskCanvas.style.pointerEvents = 'auto'; 
-                textOverlay.style.pointerEvents = 'none'; 
-                textOverlay.classList.add('click-through'); 
-                textOverlay.style.opacity = '0.5'; 
+                item.displayData = JSON.parse(JSON.stringify(item.rawData));
+            }
+
+            if (item.blockStates.length !== item.displayData.length) {
+                item.blockStates = new Array(item.displayData.length).fill(1);
             }
         }
 
         function mergeTextBlocks(blocks) {
             if (!blocks || blocks.length === 0) return [];
-            let merged = JSON.parse(JSON.stringify(blocks));
-            for (let i = 0; i < merged.length - 1; i++) {
-                let curr = merged[i];
-                let next = merged[i+1];
-                let currBottom = curr.box_2d[2];
-                let nextTop = next.box_2d[0];
-                let dist = Math.abs(nextTop - currBottom);
-                let xDiff = Math.abs(curr.box_2d[1] - next.box_2d[1]);
-                if (dist < 35 && xDiff < 50 && curr.font_size === next.font_size) {
-                    curr.text += " " + next.text;
-                    curr.box_2d[2] = next.box_2d[2]; 
-                    curr.box_2d[3] = Math.max(curr.box_2d[3], next.box_2d[3]); 
-                    merged.splice(i+1, 1); 
-                    i--; 
+            blocks.sort((a, b) => (a.box_2d[0] - b.box_2d[0]) || (a.box_2d[1] - b.box_2d[1]));
+            
+            let merged = [];
+            if(blocks.length > 0) merged.push(blocks[0]);
+
+            for (let i = 1; i < blocks.length; i++) {
+                let curr = blocks[i];
+                let prev = merged[merged.length - 1];
+
+                let fontSizeMatch = Math.abs((curr.font_size || 0) - (prev.font_size || 0)) < 3;
+                let vDist = curr.box_2d[0] - prev.box_2d[2]; 
+                let hOverlap = !(curr.box_2d[1] > prev.box_2d[3] || curr.box_2d[3] < prev.box_2d[1]);
+                let alignLeft = Math.abs(curr.box_2d[1] - prev.box_2d[1]) < 50; 
+
+                if (fontSizeMatch && vDist < 50 && (hOverlap || alignLeft)) {
+                    prev.text += " " + curr.text;
+                    prev.box_2d[2] = curr.box_2d[2]; 
+                    prev.box_2d[3] = Math.max(prev.box_2d[3], curr.box_2d[3]); 
+                    prev.box_2d[1] = Math.min(prev.box_2d[1], curr.box_2d[1]); 
+                } else {
+                    merged.push(curr);
                 }
             }
             return merged;
         }
 
-        function toggleMerge() {
-            if (currentIndex !== -1) renderPageWithZoom(pdfPages[currentIndex]);
+        // --- Interaction Logic ---
+        function handleOverlayMouseDown(e) {
+            if (editMode !== 'select') return;
+            const item = pagesData[currentIndex];
+            if (!item || !item.displayData) return;
+
+            if (e.target.isContentEditable) return;
+            
+            if (e.target.classList.contains('delete-handle')) return;
+
+            const rect = textOverlay.getBoundingClientRect();
+            // Handle touch coords
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            
+            const mouseX = clientX - rect.left;
+            const mouseY = clientY - rect.top;
+            
+            if (e.target.classList.contains('resize-handle')) {
+                dragAction = 'resize';
+                dragStart = { x: mouseX, y: mouseY };
+                activeBlockData = JSON.parse(JSON.stringify(item.displayData[selectedBlockIndex].box_2d));
+                e.stopPropagation();
+                return;
+            }
+            
+            if (e.target.classList.contains('move-handle')) {
+                dragAction = 'move';
+                dragStart = { x: mouseX, y: mouseY };
+                activeBlockData = JSON.parse(JSON.stringify(item.displayData[selectedBlockIndex].box_2d));
+                e.stopPropagation();
+                return;
+            }
+
+            const targetBox = e.target.closest('.ocr-box');
+            if (targetBox) {
+                const children = Array.from(textOverlay.children);
+                const idx = children.indexOf(targetBox);
+                
+                if (idx !== -1) {
+                    if (idx === selectedBlockIndex) {
+                        const block = item.displayData[idx];
+                        if (!block.isManual) {
+                            dragAction = 'move';
+                            dragStart = { x: mouseX, y: mouseY };
+                            activeBlockData = JSON.parse(JSON.stringify(block.box_2d));
+                        }
+                    } else {
+                        selectedBlockIndex = idx;
+                        const block = item.displayData[idx];
+                        if (!block.isManual) {
+                            dragAction = 'move'; 
+                            dragStart = { x: mouseX, y: mouseY };
+                            activeBlockData = JSON.parse(JSON.stringify(block.box_2d));
+                        }
+                        renderTextOverlay(item); 
+                    }
+                    e.stopPropagation();
+                }
+            } else {
+                if (selectedBlockIndex !== -1) {
+                    selectedBlockIndex = -1;
+                    renderTextOverlay(item);
+                }
+            }
         }
 
-        function renderTextOverlay() {
-            textOverlay.innerHTML = '';
-            const item = pdfPages[currentIndex];
-            if (!item.displayData) return;
+        function handleOverlayMouseMove(e) {
+            if (!dragAction || selectedBlockIndex === -1) return;
+            const item = pagesData[currentIndex];
+            
+            const rect = textOverlay.getBoundingClientRect();
+            // Handle touch coords
+            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+            if(!clientX) return; // Basic validation
 
-            item.displayData.forEach((block, idx) => {
-                if (!block.box_2d) return;
-                const div = document.createElement('div');
-                const state = item.blockStates[idx] || 0; 
-                let cssClass = 'keep'; 
-                let title = '狀態：綠框 (保留原圖)';
-                if (state === 1) { cssClass = 'mask-text'; title = '狀態：紅框 (遮蓋+貼字)'; }
-                else if (state === 2) { cssClass = 'text-only'; title = '狀態：藍框 (僅貼字)'; }
-                div.className = `ocr-box ${cssClass}`;
-                
-                const y = block.box_2d[0] / 10;
-                const x = block.box_2d[1] / 10;
-                const h = (block.box_2d[2] - block.box_2d[0]) / 10;
-                const w = (block.box_2d[3] - block.box_2d[1]) / 10;
-                
+            const mouseX = clientX - rect.left;
+            const mouseY = clientY - rect.top;
+            const deltaX = mouseX - dragStart.x;
+            const deltaY = mouseY - dragStart.y;
+            
+            const scaleX = 1000 / rect.width;
+            const scaleY = 1000 / rect.height;
+            const dX_1000 = deltaX * scaleX;
+            const dY_1000 = deltaY * scaleY;
+
+            const block = item.displayData[selectedBlockIndex];
+            const initial = activeBlockData; 
+
+            if (dragAction === 'move') {
+                block.box_2d[0] = initial[0] + dY_1000;
+                block.box_2d[1] = initial[1] + dX_1000;
+                block.box_2d[2] = initial[2] + dY_1000;
+                block.box_2d[3] = initial[3] + dX_1000;
+            } else if (dragAction === 'resize') {
+                block.box_2d[2] = Math.max(block.box_2d[0] + 10, initial[2] + dY_1000);
+                block.box_2d[3] = Math.max(block.box_2d[1] + 10, initial[3] + dX_1000);
+            }
+            
+            const div = textOverlay.children[selectedBlockIndex];
+            if (div) {
+                const y = block.box_2d[0]/10; const x = block.box_2d[1]/10;
+                const h = (block.box_2d[2]-block.box_2d[0])/10; const w = (block.box_2d[3]-block.box_2d[1])/10;
                 div.style.top = `${y}%`; div.style.left = `${x}%`; div.style.width = `${w}%`; div.style.height = `${h}%`;
-                div.title = title;
-                div.onclick = (e) => {
-                    if(editMode !== 'select') return;
+            }
+            e.preventDefault(); // Prevent scroll on touch
+        }
+
+        function handleOverlayMouseUp(e) {
+            dragAction = null;
+            activeBlockData = null;
+        }
+
+        function renderTextOverlay(item) {
+            textOverlay.innerHTML = '';
+            if (!item.displayData) return;
+            
+            item.displayData.forEach((block, idx) => {
+                const div = document.createElement('div');
+                const state = item.blockStates[idx] !== undefined ? item.blockStates[idx] : 1;
+                let cssClass = 'keep';
+                if (state === 1) cssClass = 'reconstruct';
+                else if (state === 2) cssClass = 'overlay';
+
+                if (idx === selectedBlockIndex) {
+                    div.classList.add('selected');
+                }
+                
+                const isManual = !!block.isManual;
+                if (isManual) {
+                    div.classList.add('manual');
+                    div.setAttribute('contenteditable', 'true');
+                    div.textContent = block.text;
+                    div.addEventListener('input', () => { block.text = div.textContent; });
+                } else {
+                    div.classList.add('ai');
+                    div.setAttribute('contenteditable', 'false');
+                    div.textContent = ""; 
+                }
+
+                div.className = `ocr-box ${cssClass} ${idx === selectedBlockIndex ? 'selected' : ''} ${isManual ? 'manual' : 'ai'}`;
+                
+                const y = block.box_2d[0]/10; const x = block.box_2d[1]/10;
+                const h = (block.box_2d[2]-block.box_2d[0])/10; const w = (block.box_2d[3]-block.box_2d[1])/10;
+                div.style.top = `${y}%`; div.style.left = `${x}%`; div.style.width = `${w}%`; div.style.height = `${h}%`;
+                
+                if (idx === selectedBlockIndex) {
+                    const resizeHandle = document.createElement('div');
+                    resizeHandle.className = 'resize-handle';
+                    resizeHandle.contentEditable = "false";
+                    div.appendChild(resizeHandle);
+                    
+                    if (isManual) {
+                        const moveHandle = document.createElement('div');
+                        moveHandle.className = 'move-handle';
+                        moveHandle.contentEditable = "false";
+                        div.appendChild(moveHandle);
+                        
+                        const deleteHandle = document.createElement('div');
+                        deleteHandle.className = 'delete-handle';
+                        deleteHandle.contentEditable = "false";
+                        deleteHandle.onclick = (e) => {
+                            e.stopPropagation();
+                            deleteBlock(idx);
+                        };
+                        div.appendChild(deleteHandle);
+                    }
+                }
+
+                div.addEventListener('dblclick', (e) => {
+                    if (e.target !== div && isManual) return; 
                     e.stopPropagation();
-                    toggleBlockState(idx);
-                };
+                    item.blockStates[idx] = (state + 1) % 3;
+                    renderTextOverlay(item);
+                });
+
                 textOverlay.appendChild(div);
             });
         }
-
-        function toggleBlockState(blockIdx) {
-            const item = pdfPages[currentIndex];
-            const currentState = item.blockStates[blockIdx] || 0;
-            const nextState = (currentState + 1) % 3;
-            item.blockStates[blockIdx] = nextState;
-            renderTextOverlay();
-        }
+        
+        // Bind Overlay Events (Mouse + Touch)
+        textOverlay.addEventListener('mousedown', handleOverlayMouseDown);
+        window.addEventListener('mousemove', handleOverlayMouseMove); 
+        window.addEventListener('mouseup', handleOverlayMouseUp);
+        
+        textOverlay.addEventListener('touchstart', (e)=>{
+            if(e.touches.length > 1) return; // Ignore pinch zoom
+            handleOverlayMouseDown(e);
+        }, {passive: false});
+        window.addEventListener('touchmove', handleOverlayMouseMove, {passive: false});
+        window.addEventListener('touchend', handleOverlayMouseUp);
 
         async function analyzeCurrentPage() {
             const key = apiKeyInput.value.trim();
             if (!key) return alert('請輸入 API Key');
             canvasLoader.classList.remove('hidden');
-            loaderText.textContent = "AI 分析排版中...";
+            
             try {
                 const base64 = pdfCanvas.toDataURL('image/jpeg', 0.8).split(',')[1];
-                const prompt = `Analyze document layout. Identify all text blocks with TIGHT bounding boxes.
-                Return JSON Array ONLY. No markdown.
-                [{"text": "content", "box_2d": [ymin, xmin, ymax, xmax] (0-1000), "font_size": 12, "color": "hex", "is_bold": boolean, "align": "left"}]`;
+                const prompt = `Identify all text blocks for RECONSTRUCTION. Return JSON Array ONLY.
+Format: [{"text": "content", "box_2d": [ymin, xmin, ymax, xmax] (0-1000 scale), "font_size": number, "color": "hex", "is_bold": boolean, "align": "left"}]
+Important: The box_2d MUST include the full background context of the text, not just the glyphs. It should cover line spacing and margin to ensure clean removal.`;
 
-                let result = null;
-                for (const model of MODELS) {
-                    try {
-                        console.log("Trying model:", model);
-                        result = await callGemini(key, model, prompt, base64);
-                        break; 
-                    } catch (e) { console.warn(`Model ${model} failed:`, e); }
-                }
-                if (!result) throw new Error("AI 無回應");
-                const item = pdfPages[currentIndex];
+                const result = await callGemini(key, prompt, base64);
+                const item = pagesData[currentIndex];
                 item.rawData = result;
-                item.displayData = result; 
-                item.blockStates = new Array(result.length).fill(0); 
-                renderPageWithZoom(item);
-                updateStatus('success');
-                setMode('select');
+                
+                processData(item);
+                item.blockStates = new Array(item.displayData.length).fill(1); 
+                autoPickBackgroundColor();
+                renderTextOverlay(item);
+                updateStatus(item);
             } catch (e) {
-                alert('分析失敗: ' + e.message);
-                updateStatus('error');
-            } finally { canvasLoader.classList.add('hidden'); }
+                alert('AI 分析失敗: ' + e.message);
+                updateStatus(pagesData[currentIndex]);
+            } finally {
+                canvasLoader.classList.add('hidden');
+            }
         }
 
-        async function callGemini(key, model, text, imageBase64) {
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
+        async function callGemini(key, text, imageBase64) {
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${key}`;
             const payload = {
                 contents: [{ role: "user", parts: [{ text: text }, { inlineData: { mimeType: "image/jpeg", data: imageBase64 } }] }],
                 generationConfig: { responseMimeType: "application/json" }
             };
             const res = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error?.message);
-            try {
-                let raw = data.candidates[0].content.parts[0].text;
-                raw = raw.replace(/```json/g, '').replace(/```/g, '');
-                return JSON.parse(raw);
-            } catch(e) { throw new Error('JSON Parse Error'); }
+            if (!res.ok) throw new Error(data.error?.message || 'API Error');
+            const raw = data.candidates[0].content.parts[0].text.replace(/```json/g, '').replace(/```/g, '');
+            return JSON.parse(raw);
         }
 
-        function clearMask() {
-            if(currentIndex !== -1) {
-                pdfPages[currentIndex].strokes = [];
-                redrawStrokes(pdfPages[currentIndex]);
-            }
-            checkAllDone();
-        }
-
-        function updateStatus(state) {
-            const statusDiv = document.getElementById('statusText');
-            if (!pdfPages[currentIndex]) return;
-            const itemBadge = pdfPages[currentIndex].el.querySelector('.status-badge');
-            if (state === 'success') {
-                if(itemBadge) { itemBadge.textContent = '完成'; itemBadge.className = 'status-badge text-[10px] bg-green-100 text-green-600 px-2 py-1 rounded-full inline-block'; }
-                const count = pdfPages[currentIndex].displayData ? pdfPages[currentIndex].displayData.length : 0;
-                if(statusDiv) statusDiv.textContent = `✅ 偵測到 ${count} 個區塊 (綠/紅/藍 切換)`; 
-            } else if (state === 'error') {
-                if(itemBadge) { itemBadge.textContent = '失敗'; itemBadge.className = 'status-badge text-[10px] bg-red-100 text-red-600 px-2 py-1 rounded-full inline-block'; }
+        function updateStatus(item) {
+            const badge = item.el.querySelector('.status-badge');
+            if (item.rawData) {
+                badge.textContent = '已分析';
+                badge.className = 'status-badge text-[10px] bg-indigo-100 text-indigo-600 px-2 py-1 rounded-full inline-block';
+                statusTextEl.textContent = `✅ 偵測到 ${item.displayData.length} 個區塊`;
+            } else {
+                badge.textContent = '未分析';
+                statusTextEl.textContent = '請點擊「AI 視覺辨識」';
             }
             checkAllDone();
         }
 
         function checkAllDone() {
-            const hasData = pdfPages.some(p => p.rawData || (p.strokes && p.strokes.length > 0));
-            document.getElementById('downloadBtn').disabled = !hasData;
+            const ready = pagesData.some(p => p.rawData || p.strokes.length > 0);
+            document.getElementById('downloadBtn').disabled = !ready;
         }
 
         async function startAutoRun() {
             const key = apiKeyInput.value.trim();
             if (!key) return alert('請輸入 API Key');
-            for (let i = 0; i < pdfPages.length; i++) {
-                if (pdfPages[i].data) continue;
+            for (let i = 0; i < pagesData.length; i++) {
+                if (pagesData[i].rawData) continue;
                 await loadPage(i);
                 await analyzeCurrentPage();
-                await new Promise(r => setTimeout(r, 2000));
+                await new Promise(r => setTimeout(r, 1500)); 
             }
-            alert('批次處理完成！');
-        }
-        
-        function getFontForLanguage(text) {
-            if (/[\u4e00-\u9fa5]/.test(text)) return "Noto Sans TC"; 
-            return "Google Sans"; 
+            alert('全部分析完成！');
         }
 
         async function exportPPT() {
             const btn = document.getElementById('downloadBtn');
             btn.disabled = true; btn.textContent = '生成中...';
             
-            const pptx = new PptxGenJS();
-            pptx.layout = 'LAYOUT_16x9';
-            const maskColorHex = maskColorInput.value.replace('#', '');
-            const slideWidth = 10;
-            const slideHeight = 5.625;
-            const slideRatio = slideWidth / slideHeight;
+            const userFontScale = parseFloat(fontScaleInput.value) || 1.0;
+            const maskExpansion = parseFloat(maskExpansionInput.value) || 1.2;
 
-            for (let i = 0; i < pdfPages.length; i++) {
-                const page = pdfPages[i];
-                if (!page.displayData && (!page.strokes || page.strokes.length === 0)) continue;
-                
-                const slide = pptx.addSlide();
-
-                // 1. Background
-                let bgData = null;
-                try {
-                    const pdfPage = await pdfDoc.getPage(page.pageNum);
-                    const viewport = pdfPage.getViewport({ scale: 3.0 }); 
-                    const canvas = document.createElement('canvas');
-                    canvas.width = viewport.width; canvas.height = viewport.height;
-                    await pdfPage.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
-                    bgData = canvas.toDataURL('image/jpeg', 1.0);
-                } catch(e) { bgData = page.thumb; }
-
-                const imgRatio = page.viewport.width / page.viewport.height;
-                let finalW, finalH, finalX, finalY;
-                if (imgRatio > slideRatio) {
-                    finalW = slideWidth; finalH = slideWidth / imgRatio; finalX = 0; finalY = (slideHeight - finalH) / 2;
-                } else {
-                    finalH = slideHeight; finalW = slideHeight * imgRatio; finalY = 0; finalX = (slideWidth - finalW) / 2;
-                }
-                slide.addImage({ data: bgData, x: finalX, y: finalY, w: finalW, h: finalH });
-
-                // 2. Brush Mask (Export using Normalized Coords)
-                if (page.strokes && page.strokes.length > 0) {
-                    const tempC = document.createElement('canvas');
-                    // Create high-res canvas for export to match BG quality
-                    const w = 1920; 
-                    const h = w / imgRatio;
-                    tempC.width = w;
-                    tempC.height = h;
-                    const tCtx = tempC.getContext('2d');
-                    
-                    page.strokes.forEach(stroke => {
-                        if(stroke.points.length < 1) return;
-                        tCtx.beginPath();
-                        tCtx.lineCap = 'round';
-                        tCtx.lineJoin = 'round';
-                        // Denormalize size
-                        tCtx.lineWidth = stroke.normSize * w; 
-                        tCtx.strokeStyle = stroke.color;
-                        
-                        // Denormalize points
-                        tCtx.moveTo(stroke.points[0].x * w, stroke.points[0].y * h);
-                        for(let k=1; k<stroke.points.length; k++) {
-                            tCtx.lineTo(stroke.points[k].x * w, stroke.points[k].y * h);
-                        }
-                        tCtx.stroke();
-                    });
-                    slide.addImage({ data: tempC.toDataURL(), x: finalX, y: finalY, w: finalW, h: finalH });
-                }
-
-                // 3. Text
-                if (page.displayData) {
-                    page.displayData.forEach((block, idx) => {
-                        const state = page.blockStates ? page.blockStates[idx] : 0;
-                        const isReconstruct = page.reconstructIndices && page.reconstructIndices.includes(idx);
-                        if (!isReconstruct && state === 0) return; 
-                        if (!block.box_2d || block.box_2d.length < 4) return;
-
-                        const relX = block.box_2d[1] / 1000;
-                        const relY = block.box_2d[0] / 1000;
-                        const relW = (block.box_2d[3] - block.box_2d[1]) / 1000;
-                        const relH = (block.box_2d[2] - block.box_2d[0]) / 1000;
-
-                        const pptX = finalX + (relX * finalW);
-                        const pptY = finalY + (relY * finalH);
-                        const pptW = relW * finalW;
-                        const pptH = relH * finalH;
-
-                        if (state === 1 || isReconstruct) {
-                            const padX = pptW * 0.05;
-                            const padY = pptH * 0.05;
-                            slide.addShape(pptx.ShapeType.rect, {
-                                x: pptX - padX, y: pptY - padY, w: pptW + (padX*2), h: pptH + (padY*2),
-                                fill: { color: maskColorHex }, line: { width: 0 } 
-                            });
-                        }
-                        
-                        let fontColor = '000000';
-                        if (block.color && typeof block.color === 'string') {
-                            const safeHex = block.color.replace('#', '').replace(/[^0-9A-Fa-f]/g, '');
-                            if (safeHex.length === 6) fontColor = safeHex;
-                        }
-
-                        let fontSize = typeof block.font_size === 'number' ? block.font_size : 12;
-                        if (fontSize > 100) fontSize = 24; 
-                        fontSize = Math.max(fontSize * 0.03, 8); 
-
-                        slide.addText(block.text || "", {
-                            x: pptX, y: pptY, w: pptW, h: pptH,
-                            fontSize: fontSize,
-                            color: fontColor,
-                            bold: block.is_bold || false,
-                            align: block.align || 'left',
-                            valign: 'top',
-                            fontFace: getFontForLanguage(block.text) 
-                        });
-                    });
-                }
-            }
-            
             try {
-                await pptx.writeFile({ fileName: 'NotebookLM_V36_4_Fixed.pptx' });
+                const pptx = new PptxGenJS();
+                pptx.layout = 'LAYOUT_16x9';
+
+                for (let i = 0; i < pagesData.length; i++) {
+                    const item = pagesData[i];
+                    const slide = pptx.addSlide();
+
+                    const tempCanvas = document.createElement('canvas');
+                    const vpW = item.viewport?.width || 1024;
+                    const vpH = item.viewport?.height || 768;
+                    const exportScale = 2000 / vpW; 
+                    tempCanvas.width = vpW * exportScale;
+                    tempCanvas.height = vpH * exportScale;
+                    const ctx = tempCanvas.getContext('2d');
+
+                    if (item.type === 'pdf') {
+                        const page = await pdfDoc.getPage(item.pageNum);
+                        await page.render({ canvasContext: ctx, viewport: page.getViewport({ scale: exportScale }) }).promise;
+                    } else {
+                        const img = new Image(); img.src = item.imgUrl; await img.decode();
+                        ctx.drawImage(img, 0, 0, tempCanvas.width, tempCanvas.height);
+                    }
+
+                    const maskHex = maskColorInput.value;
+                    if (item.displayData) {
+                        item.displayData.forEach((block, idx) => {
+                            if (item.blockStates[idx] === 1) { 
+                                const y = (block.box_2d[0] / 1000) * tempCanvas.height;
+                                const x = (block.box_2d[1] / 1000) * tempCanvas.width;
+                                const h = ((block.box_2d[2] - block.box_2d[0]) / 1000) * tempCanvas.height;
+                                const w = ((block.box_2d[3] - block.box_2d[1]) / 1000) * tempCanvas.width;
+                                
+                                const expFactor = maskExpansion - 1.0; 
+                                let paddingH = 0;
+                                let paddingW = 0;
+                                if (expFactor > 0) {
+                                    paddingH = h * expFactor;
+                                    paddingW = w * expFactor;
+                                }
+                                
+                                ctx.fillStyle = maskHex; 
+                                ctx.fillRect(x - paddingW, y - paddingH, w + (paddingW * 2), h + (paddingH * 2));
+                            }
+                        });
+                    }
+
+                    item.strokes.forEach(s => {
+                        if (s.points.length < 1) return;
+                        ctx.beginPath(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+                        ctx.lineWidth = s.normSize * tempCanvas.width; ctx.strokeStyle = s.color;
+                        ctx.moveTo(s.points[0].x * tempCanvas.width, s.points[0].y * tempCanvas.height);
+                        for(let k=1; k<s.points.length; k++) ctx.lineTo(s.points[k].x * tempCanvas.width, s.points[k].y * tempCanvas.height);
+                        ctx.stroke();
+                    });
+
+                    const bgData = tempCanvas.toDataURL('image/jpeg', 0.85);
+                    slide.background = { data: bgData };
+
+                    const slideW = 10;
+                    const slideH = 5.625;
+                    const imgRatio = vpW / vpH;
+                    const slideRatio = slideW / slideH;
+                    
+                    let finalW, finalH, finalX, finalY;
+                    if (imgRatio > slideRatio) {
+                         finalW = slideW; finalH = slideW / imgRatio; finalX = 0; finalY = (slideH - finalH) / 2;
+                    } else {
+                         finalH = slideH; finalW = slideH * imgRatio; finalY = 0; finalX = (slideW - finalW) / 2;
+                    }
+
+                    if (item.displayData) {
+                        item.displayData.forEach((block, idx) => {
+                            const state = item.blockStates[idx];
+                            if (state === 1 || state === 2) {
+                                const relX = block.box_2d[1] / 1000;
+                                const relY = block.box_2d[0] / 1000;
+                                const relW = (block.box_2d[3] - block.box_2d[1]) / 1000;
+                                const relH = (block.box_2d[2] - block.box_2d[0]) / 1000;
+
+                                const pptX = finalX + (relX * finalW);
+                                const pptY = finalY + (relY * finalH);
+                                const pptW = relW * finalW;
+                                const pptH = relH * finalH;
+
+                                let rawSize = block.font_size || 8; 
+                                let fontSize = 10; 
+                                if (rawSize >= 10) {
+                                    fontSize = 14; 
+                                } else {
+                                    fontSize = 10; 
+                                }
+                                
+                                const maxFontSizeBasedOnHeight = (pptH * 72) * 0.75; 
+                                fontSize = Math.min(fontSize, maxFontSizeBasedOnHeight);
+                                fontSize = fontSize * userFontScale;
+                                fontSize = Math.min(20, Math.max(fontSize, 8));
+
+                                slide.addText(block.text, {
+                                    x: pptX, y: pptY, w: pptW, h: pptH,
+                                    fontSize: fontSize,
+                                    color: block.color ? block.color.replace('#','') : '000000',
+                                    bold: block.is_bold,
+                                    align: block.align || 'left',
+                                    valign: 'top',
+                                    fontFace: "Noto Sans TC" 
+                                });
+                            }
+                        });
+                    }
+                }
+
+                await pptx.writeFile({ fileName: 'NotebookLM_V37_20_Responsive.pptx' });
+
             } catch (err) {
                 console.error(err);
-                alert("匯出錯誤");
+                alert("匯出錯誤: " + err.message);
             }
             btn.disabled = false; btn.innerHTML = '<i data-lucide="download" class="w-4 h-4"></i> <span class="hidden sm:inline">下載 PPT</span>';
             lucide.createIcons({ root: btn });
         }
+        
+        maskCanvas.addEventListener('mousedown', startDrawing);
+        maskCanvas.addEventListener('mousemove', draw);
+        maskCanvas.addEventListener('mouseup', stopDrawing);
+        maskCanvas.addEventListener('mouseout', stopDrawing);
+        maskCanvas.addEventListener('touchstart', (e)=>{e.preventDefault(); startDrawing(e.touches[0])}, {passive:false});
+        maskCanvas.addEventListener('touchmove', (e)=>{e.preventDefault(); draw(e.touches[0])}, {passive:false});
+        maskCanvas.addEventListener('touchend', stopDrawing);
     </script>
 </body>
 </html>
