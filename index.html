@@ -3,50 +3,74 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover">
-    <title>NotebookLM 轉 PPT (V37.21 自動更新修正版)</title>
+    <title>NotebookLM 轉 PPT (V37.23 自動輪詢防呆版)</title>
     
     <link rel="manifest" href="manifest.json">
     <script>
-      // Service Worker Update Handling (V37.21 Fixed)
+      const APP_VERSION = 'V37.23';
+
+      // 1. Service Worker 註冊與監聽
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
             navigator.serviceWorker.register('sw.js').then(reg => {
                 console.log('SW registered');
+                reg.update(); // 嘗試觸發更新
                 
-                // 1. Force check for update on load
-                reg.update();
-
-                // 2. Listen for new updates found
+                // 監聽 SW 更新狀態
                 reg.onupdatefound = () => {
                     const installingWorker = reg.installing;
                     if (installingWorker == null) return;
-                    
                     installingWorker.onstatechange = () => {
-                        if (installingWorker.state === 'installed') {
-                            if (navigator.serviceWorker.controller) {
-                                // New update available
-                                if(confirm("🚀 應用程式有新版本！\n是否立即重新整理以應用更新？")) {
-                                    window.location.reload();
-                                }
-                            }
+                        if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                            showUpdatePrompt();
                         }
                     };
                 };
             }).catch(err => console.log('SW Skip:', err));
         });
       }
+
+      // 2. 顯示更新提示 (UI)
+      function showUpdatePrompt() {
+          const div = document.createElement('div');
+          div.style.cssText = "position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#333; color:white; padding:15px 25px; border-radius:30px; box-shadow:0 4px 12px rgba(0,0,0,0.3); z-index:9999; display:flex; align-items:center; gap:15px; font-size:14px; font-weight:bold;";
+          div.innerHTML = `
+            <span>🚀 檢測到新版本！</span>
+            <button onclick="forceUpdate()" style="background:#2563eb; color:white; border:none; padding:5px 15px; border-radius:20px; font-weight:bold;">立即更新</button>
+          `;
+          document.body.appendChild(div);
+      }
+
+      // 3. 強制更新邏輯 (核彈級清除)
+      async function forceUpdate() {
+          if ('serviceWorker' in navigator) {
+              const registrations = await navigator.serviceWorker.getRegistrations();
+              for (const registration of registrations) {
+                  await registration.unregister();
+              }
+          }
+          if ('caches' in window) {
+              const keys = await caches.keys();
+              await Promise.all(keys.map(key => caches.delete(key)));
+          }
+          window.location.reload(true);
+      }
+
+      // 4. 定時檢查機制 (每60秒檢查一次)
+      // 這是為了繞過 SW，直接確認連線並嘗試觸發更新
+      setInterval(() => {
+          if ('serviceWorker' in navigator) {
+              navigator.serviceWorker.ready.then(reg => reg.update());
+          }
+      }, 60000);
+
     </script>
     
     <!-- Libraries -->
-    <!-- PDF.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <!-- PPTXGenJS -->
     <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
-    <!-- JSZip (For PPTX Parsing) -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     
     <script>
@@ -56,12 +80,23 @@
     <style>
         body { font-family: 'Noto Sans TC', 'Microsoft JhengHei', sans-serif; background-color: #f3f4f6; height: 100vh; overflow: hidden; }
         
+        /* Version Watermark */
+        .version-watermark {
+            position: fixed;
+            bottom: 5px;
+            right: 5px;
+            font-size: 10px;
+            color: rgba(0,0,0,0.2);
+            pointer-events: none;
+            z-index: 0;
+        }
+
         /* Responsive Page Card */
         .page-card { 
             transition: all 0.2s; 
             border: 2px solid transparent; 
             cursor: pointer; 
-            width: 100%; /* Full width in container */
+            width: 100%; 
         }
         .page-card:hover { transform: translateY(-2px); }
         .page-card.active { border-color: #2563eb; background-color: #eff6ff; }
@@ -70,7 +105,6 @@
         canvas { touch-action: none; }
         .cursor-pipette { cursor: crosshair !important; }
 
-        /* Custom Scrollbar */
         .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 3px; }
         .custom-scrollbar::-webkit-scrollbar-track { background-color: transparent; }
@@ -87,13 +121,8 @@
         }
 
         /* Checkbox */
-        .toggle-checkbox:checked {
-            right: 0;
-            border-color: #68D391;
-        }
-        .toggle-checkbox:checked + .toggle-label {
-            background-color: #68D391;
-        }
+        .toggle-checkbox:checked { right: 0; border-color: #68D391; }
+        .toggle-checkbox:checked + .toggle-label { background-color: #68D391; }
 
         /* OCR Box Styling */
         .ocr-box { 
@@ -105,23 +134,21 @@
             overflow: hidden;
             padding: 1px;
             line-height: 1.2;
-            cursor: pointer; /* Default cursor for AI boxes */
+            cursor: pointer; 
         }
         
-        /* Manual Box Styling */
+        /* Manual Box */
         .ocr-box.manual {
             background-color: rgba(255, 255, 255, 0.8) !important;
             color: black !important;
             border: 1px solid #666;
-            cursor: text; /* Text cursor for manual boxes */
-            overflow: visible; /* Allow text to be seen */
+            cursor: text; 
+            overflow: visible; 
             white-space: normal;
         }
 
-        /* AI Box (No Text) Styling */
-        .ocr-box.ai {
-            color: transparent; /* Hide text */
-        }
+        /* AI Box (No Text) */
+        .ocr-box.ai { color: transparent; }
         
         .click-through .ocr-box { pointer-events: none !important; }
 
@@ -132,64 +159,38 @@
             z-index: 60;
         }
         
-        /* Resize Handle (Bottom Right) */
+        /* Handles */
         .resize-handle {
-            position: absolute;
-            width: 12px; height: 12px;
-            background-color: #2563eb;
-            border: 2px solid white;
-            bottom: -6px; right: -6px;
-            cursor: se-resize;
-            border-radius: 50%;
-            display: none; 
-            z-index: 61;
+            position: absolute; width: 12px; height: 12px;
+            background-color: #2563eb; border: 2px solid white;
+            bottom: -6px; right: -6px; cursor: se-resize;
+            border-radius: 50%; display: none; z-index: 61;
             box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         }
         .ocr-box.selected .resize-handle { display: block; }
 
-        /* Move Handle (Top Center) - Only for Manual Boxes or Selected AI Boxes */
         .move-handle {
-            position: absolute;
-            width: 24px; height: 24px; /* Larger touch target */
-            background-color: #2563eb;
-            top: -12px; left: 50%; transform: translateX(-50%);
-            cursor: move;
-            border-radius: 4px;
-            display: none; 
-            align-items: center; justify-content: center;
-            z-index: 62;
+            position: absolute; width: 24px; height: 24px;
+            background-color: #2563eb; top: -12px; left: 50%; transform: translateX(-50%);
+            cursor: move; border-radius: 4px; display: none; 
+            align-items: center; justify-content: center; z-index: 62;
             box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         }
-        .move-handle::after {
-            content: '+'; color: white; font-size: 18px; font-weight: bold; line-height: 1;
-        }
-        /* Only show move handle for selected MANUAL boxes (AI boxes move by body drag) */
+        .move-handle::after { content: '+'; color: white; font-size: 18px; font-weight: bold; line-height: 1; }
         .ocr-box.manual.selected .move-handle { display: flex; }
 
-        /* Delete Handle (Top Right) - Only for Manual Boxes */
         .delete-handle {
-            position: absolute;
-            width: 20px; height: 20px; /* Larger touch target */
-            background-color: #ef4444;
-            top: -10px; right: -10px;
-            cursor: pointer;
-            border-radius: 50%;
-            display: none;
-            align-items: center; justify-content: center;
-            z-index: 63;
-            border: 2px solid white;
-            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+            position: absolute; width: 20px; height: 20px;
+            background-color: #ef4444; top: -10px; right: -10px;
+            cursor: pointer; border-radius: 50%; display: none;
+            align-items: center; justify-content: center; z-index: 63;
+            border: 2px solid white; box-shadow: 0 1px 2px rgba(0,0,0,0.2);
         }
-        .delete-handle::after {
-            content: '×'; color: white; font-size: 14px; font-weight: bold; line-height: 1;
-        }
+        .delete-handle::after { content: '×'; color: white; font-size: 14px; font-weight: bold; line-height: 1; }
         .ocr-box.manual.selected .delete-handle { display: flex; }
 
-        /* Green Box */
         .ocr-box.keep { border: 1px solid #22c55e; background-color: rgba(34, 197, 94, 0.1); }
-        /* Red Box */
         .ocr-box.reconstruct { border: 2px solid #ef4444; background-color: rgba(239, 68, 68, 0.15); }
-        /* Blue Box */
         .ocr-box.overlay { border: 1px dashed #3b82f6; background-color: rgba(59, 130, 246, 0.1); }
 
         .loader {
@@ -198,13 +199,11 @@
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        /* Responsive Tweaks */
         @media (max-width: 640px) {
             .page-card { padding: 0.5rem; }
-            .ocr-box { border-width: 1px; } /* Thinner borders on mobile */
-            /* Hide sidebar on mobile by default or make it collapsible (simplified here: kept but small) */
+            .ocr-box { border-width: 1px; } 
             #sidebar { width: 80px; } 
-            #sidebar .page-info { display: none; } /* Hide text info in sidebar on mobile */
+            #sidebar .page-info { display: none; } 
             #toolbar { overflow-x: auto; -webkit-overflow-scrolling: touch; }
         }
     </style>
@@ -214,7 +213,7 @@
     <!-- Header -->
     <header class="bg-white shadow-sm z-30 p-2 sm:p-3 flex justify-between items-center shrink-0 h-14 sm:h-16 relative w-full">
         <div class="flex items-center gap-2">
-            <div class="bg-indigo-600 text-white p-1 sm:p-1.5 rounded-lg font-bold text-lg sm:text-xl">V37.21</div>
+            <div class="bg-indigo-600 text-white p-1 sm:p-1.5 rounded-lg font-bold text-lg sm:text-xl">V37.23</div>
             <div class="flex flex-col">
                 <h1 class="text-base sm:text-lg font-bold leading-tight hidden sm:block">AI 視覺重繪版</h1>
                 <span class="text-[10px] text-slate-500 font-bold hidden sm:block">響應式 + 自動更新修復</span>
@@ -230,9 +229,12 @@
                 <i data-lucide="folder-open" class="w-4 h-4"></i> <span class="hidden sm:inline">開啟 PDF/PPTX</span>
                 <input type="file" id="fileInput" accept=".pdf,.pptx" class="hidden">
             </label>
-            <button onclick="window.location.reload(true)" class="bg-gray-100 hover:bg-gray-200 text-slate-600 px-2 sm:px-3 py-1.5 sm:py-2 rounded flex items-center gap-2 text-xs sm:text-sm shadow transition" title="強制重新整理 (獲取新版本)">
+            
+            <!-- Manual Force Update Button -->
+            <button onclick="forceUpdate()" class="bg-red-50 hover:bg-red-100 text-red-600 px-2 sm:px-3 py-1.5 sm:py-2 rounded flex items-center gap-2 text-xs sm:text-sm shadow transition border border-red-200" title="強制清除快取並更新">
                 <i data-lucide="refresh-cw" class="w-4 h-4"></i>
             </button>
+            
             <button id="downloadBtn" onclick="exportPPT()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2 sm:px-3 py-1.5 sm:py-2 rounded flex items-center gap-2 text-xs sm:text-sm shadow disabled:opacity-50 disabled:cursor-not-allowed transition" disabled>
                 <i data-lucide="download" class="w-4 h-4"></i> <span class="hidden sm:inline">下載 PPT</span>
             </button>
@@ -242,7 +244,7 @@
     <!-- Main -->
     <div class="flex flex-1 overflow-hidden relative w-full">
         
-        <!-- Left: List (Responsive Width) -->
+        <!-- Left Sidebar -->
         <div id="sidebar" class="w-20 sm:w-64 bg-white border-r flex flex-col shrink-0 z-20 shadow-sm transition-all duration-300">
             <div class="p-2 sm:p-3 border-b bg-slate-50 flex justify-between items-center flex-wrap gap-1">
                 <span id="pageCount" class="font-bold text-slate-600 text-[10px] sm:text-xs">等待檔案...</span>
@@ -258,13 +260,12 @@
             </div>
         </div>
 
-        <!-- Right: Editor (Flex Grow) -->
+        <!-- Right Editor -->
         <div class="flex-1 bg-slate-100 relative flex flex-col h-full overflow-hidden min-w-0">
             
-            <!-- Toolbar (Scrollable on mobile) -->
+            <!-- Toolbar -->
             <div id="toolbar" class="hidden bg-white p-2 shadow-sm border-b flex items-center gap-2 sm:gap-4 shrink-0 z-20 overflow-x-auto custom-scrollbar w-full whitespace-nowrap">
                 
-                <!-- Zoom & Mode -->
                 <div class="flex items-center gap-2 shrink-0">
                      <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
                         <button onclick="changeZoom(-0.2)" class="p-1.5 rounded hover:bg-white transition text-slate-600"><i data-lucide="minus" class="w-4 h-4"></i></button>
@@ -288,13 +289,11 @@
                     </label>
                 </div>
 
-                <!-- Tools -->
                 <div class="flex items-center gap-2 sm:gap-3 shrink-0">
                     <button onclick="analyzeCurrentPage()" class="bg-indigo-50 text-indigo-700 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-indigo-100 transition border border-indigo-200 shadow-sm whitespace-nowrap">
                         <i data-lucide="scan-eye" class="w-4 h-4"></i> <span class="hidden sm:inline">AI 辨識</span>
                     </button>
 
-                    <!-- Add Text Box -->
                     <button onclick="addTextBox()" class="bg-emerald-50 text-emerald-700 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-emerald-100 transition border border-emerald-200 shadow-sm whitespace-nowrap" title="手動新增文字框">
                         <i data-lucide="plus-square" class="w-4 h-4"></i> <span class="hidden sm:inline">新增框</span>
                     </button>
@@ -309,13 +308,11 @@
                         
                         <div class="w-px h-4 bg-slate-300 mx-1"></div>
                         
-                        <!-- Font Size Adjustment -->
                         <div class="flex flex-col justify-center px-1">
                              <span class="text-[9px] text-slate-400 font-bold mb-0.5 whitespace-nowrap">字體: <span id="fontScaleVal">1.0</span>x</span>
                              <input type="range" id="fontScale" min="0.5" max="1.5" step="0.1" value="1.0" class="w-16 sm:w-20" oninput="document.getElementById('fontScaleVal').textContent=this.value">
                         </div>
 
-                        <!-- Mask Expansion Adjustment -->
                         <div class="flex flex-col justify-center px-1 border-l pl-2 ml-1">
                              <span class="text-[9px] text-red-400 font-bold mb-0.5 whitespace-nowrap">擴張: <span id="maskExpVal">1.2</span>x</span>
                              <input type="range" id="maskExpansion" min="0.0" max="2.0" step="0.1" value="1.2" class="w-16 sm:w-20" oninput="document.getElementById('maskExpVal').textContent=this.value">
@@ -333,18 +330,13 @@
                 </div>
             </div>
 
-            <!-- Preview Area (Responsive) -->
+            <!-- Preview Area -->
             <div id="previewArea" class="flex-1 overflow-auto bg-slate-200 relative hidden p-2 sm:p-8 custom-scrollbar flex flex-col items-center w-full">
-                <!-- Canvas Container will be sized via JS -->
                 <div id="canvasContainer" class="relative shadow-2xl bg-white hidden flex-shrink-0 m-auto" style="width: 0; height: 0;">
-                    <!-- 1. PDF/Image Layer -->
                     <canvas id="pdfCanvas" class="absolute top-0 left-0 w-full h-full z-10"></canvas>
-                    <!-- 2. Drawing Layer (Brush) -->
                     <canvas id="maskCanvas" class="absolute top-0 left-0 w-full h-full z-20 cursor-crosshair touch-none"></canvas>
-                    <!-- 3. AI Box Overlay -->
                     <div id="textOverlay" class="absolute top-0 left-0 w-full h-full z-30 pointer-events-none"></div>
 
-                    <!-- Loader -->
                     <div id="canvasLoader" class="absolute inset-0 bg-white/90 z-50 hidden flex flex-col items-center justify-center backdrop-blur-sm">
                         <div class="loader mb-3"></div>
                         <span class="text-sm font-bold text-slate-600 animate-pulse" id="loaderText">AI 視覺運算中...</span>
@@ -370,6 +362,8 @@
                 </div>
             </div>
         </div>
+        <!-- Watermark for debugging -->
+        <div class="version-watermark">V37.23</div>
     </div>
 
     <script>
@@ -632,12 +626,8 @@
         }
 
         // --- Interaction Handlers ---
-        // (Similar to previous, but optimized for responsiveness)
-        // ... (Keep existing interaction functions like getNormalizedPoint, startDrawing, draw, stopDrawing, redrawStrokes, undo/clear, toggleEyedropper, pickColor) ...
-        
         function getNormalizedPoint(e) {
             const rect = maskCanvas.getBoundingClientRect();
-            // Handle touch event fallback
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
             return { x: (clientX - rect.left) / rect.width, y: (clientY - rect.top) / rect.height };
@@ -708,7 +698,6 @@
 
         function pickColor(e) {
             const rect = maskCanvas.getBoundingClientRect();
-            // Handle touch event fallback
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
             
@@ -748,7 +737,6 @@
             const item = pagesData[currentIndex];
             if (!item.displayData) item.displayData = []; 
 
-            // Add new block at center (relative 0-1000)
             const newBlock = {
                 text: "新增文字",
                 box_2d: [450, 400, 500, 600], 
@@ -826,24 +814,26 @@
             return merged;
         }
 
-        // --- Interaction Logic ---
+        // --- Interaction Logic (Fixed V37.19) ---
         function handleOverlayMouseDown(e) {
             if (editMode !== 'select') return;
             const item = pagesData[currentIndex];
             if (!item || !item.displayData) return;
 
+            // Allow clicking inside manual text to edit
             if (e.target.isContentEditable) return;
             
+            // Handle Delete click
             if (e.target.classList.contains('delete-handle')) return;
 
             const rect = textOverlay.getBoundingClientRect();
-            // Handle touch coords
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
             
             const mouseX = clientX - rect.left;
             const mouseY = clientY - rect.top;
             
+            // Check Resize Handle
             if (e.target.classList.contains('resize-handle')) {
                 dragAction = 'resize';
                 dragStart = { x: mouseX, y: mouseY };
@@ -852,6 +842,7 @@
                 return;
             }
             
+            // Check Move Handle (Manual Box)
             if (e.target.classList.contains('move-handle')) {
                 dragAction = 'move';
                 dragStart = { x: mouseX, y: mouseY };
@@ -860,28 +851,34 @@
                 return;
             }
 
+            // Check Box Body (AI Box only)
             const targetBox = e.target.closest('.ocr-box');
             if (targetBox) {
                 const children = Array.from(textOverlay.children);
                 const idx = children.indexOf(targetBox);
                 
                 if (idx !== -1) {
+                    const block = item.displayData[idx];
+
                     if (idx === selectedBlockIndex) {
-                        const block = item.displayData[idx];
+                        // Already selected. 
+                        // If it's an AI box (not manual), we allow body drag.
                         if (!block.isManual) {
                             dragAction = 'move';
                             dragStart = { x: mouseX, y: mouseY };
                             activeBlockData = JSON.parse(JSON.stringify(block.box_2d));
                         }
                     } else {
+                        // Select new box
                         selectedBlockIndex = idx;
-                        const block = item.displayData[idx];
+                        renderTextOverlay(item); 
+                        
+                        // Immediate drag start for AI box
                         if (!block.isManual) {
-                            dragAction = 'move'; 
+                            dragAction = 'move';
                             dragStart = { x: mouseX, y: mouseY };
                             activeBlockData = JSON.parse(JSON.stringify(block.box_2d));
                         }
-                        renderTextOverlay(item); 
                     }
                     e.stopPropagation();
                 }
@@ -898,10 +895,9 @@
             const item = pagesData[currentIndex];
             
             const rect = textOverlay.getBoundingClientRect();
-            // Handle touch coords
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            if(!clientX) return; // Basic validation
+            if(!clientX) return; 
 
             const mouseX = clientX - rect.left;
             const mouseY = clientY - rect.top;
@@ -932,7 +928,7 @@
                 const h = (block.box_2d[2]-block.box_2d[0])/10; const w = (block.box_2d[3]-block.box_2d[1])/10;
                 div.style.top = `${y}%`; div.style.left = `${x}%`; div.style.width = `${w}%`; div.style.height = `${h}%`;
             }
-            e.preventDefault(); // Prevent scroll on touch
+            e.preventDefault(); 
         }
 
         function handleOverlayMouseUp(e) {
@@ -974,11 +970,13 @@
                 div.style.top = `${y}%`; div.style.left = `${x}%`; div.style.width = `${w}%`; div.style.height = `${h}%`;
                 
                 if (idx === selectedBlockIndex) {
+                    // Resize Handle
                     const resizeHandle = document.createElement('div');
                     resizeHandle.className = 'resize-handle';
                     resizeHandle.contentEditable = "false";
                     div.appendChild(resizeHandle);
                     
+                    // Move Handle (For Manual Boxes)
                     if (isManual) {
                         const moveHandle = document.createElement('div');
                         moveHandle.className = 'move-handle';
@@ -1007,13 +1005,12 @@
             });
         }
         
-        // Bind Overlay Events (Mouse + Touch)
         textOverlay.addEventListener('mousedown', handleOverlayMouseDown);
         window.addEventListener('mousemove', handleOverlayMouseMove); 
         window.addEventListener('mouseup', handleOverlayMouseUp);
         
         textOverlay.addEventListener('touchstart', (e)=>{
-            if(e.touches.length > 1) return; // Ignore pinch zoom
+            if(e.touches.length > 1) return; 
             handleOverlayMouseDown(e);
         }, {passive: false});
         window.addEventListener('touchmove', handleOverlayMouseMove, {passive: false});
@@ -1209,7 +1206,7 @@ Important: The box_2d MUST include the full background context of the text, not 
                     }
                 }
 
-                await pptx.writeFile({ fileName: 'NotebookLM_V37_20_Responsive.pptx' });
+                await pptx.writeFile({ fileName: 'NotebookLM_V37_19_PerfectUI.pptx' });
 
             } catch (err) {
                 console.error(err);
