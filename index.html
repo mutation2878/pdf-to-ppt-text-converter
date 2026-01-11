@@ -2,21 +2,18 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
+    <!-- 1. Viewport 設定優化：允許縮放，適配各種設備 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover">
-    <title>NotebookLM 轉 PPT (V37.23 自動輪詢防呆版)</title>
+    <title>NotebookLM 轉 PPT (V37.29 響應式適配版)</title>
     
     <link rel="manifest" href="manifest.json">
     <script>
-      const APP_VERSION = 'V37.23';
+      const APP_VERSION = 'V37.29';
 
-      // 1. Service Worker 註冊與監聽
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
             navigator.serviceWorker.register('sw.js').then(reg => {
-                console.log('SW registered');
-                reg.update(); // 嘗試觸發更新
-                
-                // 監聽 SW 更新狀態
+                reg.update(); 
                 reg.onupdatefound = () => {
                     const installingWorker = reg.installing;
                     if (installingWorker == null) return;
@@ -30,24 +27,17 @@
         });
       }
 
-      // 2. 顯示更新提示 (UI)
       function showUpdatePrompt() {
           const div = document.createElement('div');
           div.style.cssText = "position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#333; color:white; padding:15px 25px; border-radius:30px; box-shadow:0 4px 12px rgba(0,0,0,0.3); z-index:9999; display:flex; align-items:center; gap:15px; font-size:14px; font-weight:bold;";
-          div.innerHTML = `
-            <span>🚀 檢測到新版本！</span>
-            <button onclick="forceUpdate()" style="background:#2563eb; color:white; border:none; padding:5px 15px; border-radius:20px; font-weight:bold;">立即更新</button>
-          `;
+          div.innerHTML = `<span>🚀 檢測到新版本！</span><button onclick="forceUpdate()" style="background:#2563eb; color:white; border:none; padding:5px 15px; border-radius:20px; font-weight:bold;">立即更新</button>`;
           document.body.appendChild(div);
       }
 
-      // 3. 強制更新邏輯 (核彈級清除)
       async function forceUpdate() {
           if ('serviceWorker' in navigator) {
               const registrations = await navigator.serviceWorker.getRegistrations();
-              for (const registration of registrations) {
-                  await registration.unregister();
-              }
+              for (const registration of registrations) { await registration.unregister(); }
           }
           if ('caches' in window) {
               const keys = await caches.keys();
@@ -56,14 +46,9 @@
           window.location.reload(true);
       }
 
-      // 4. 定時檢查機制 (每60秒檢查一次)
-      // 這是為了繞過 SW，直接確認連線並嘗試觸發更新
       setInterval(() => {
-          if ('serviceWorker' in navigator) {
-              navigator.serviceWorker.ready.then(reg => reg.update());
-          }
+          if ('serviceWorker' in navigator) { navigator.serviceWorker.ready.then(reg => reg.update()); }
       }, 60000);
-
     </script>
     
     <!-- Libraries -->
@@ -80,23 +65,17 @@
     <style>
         body { font-family: 'Noto Sans TC', 'Microsoft JhengHei', sans-serif; background-color: #f3f4f6; height: 100vh; overflow: hidden; }
         
-        /* Version Watermark */
         .version-watermark {
-            position: fixed;
-            bottom: 5px;
-            right: 5px;
-            font-size: 10px;
-            color: rgba(0,0,0,0.2);
-            pointer-events: none;
-            z-index: 0;
+            position: fixed; bottom: 5px; right: 5px; font-size: 10px; color: rgba(0,0,0,0.2); pointer-events: none; z-index: 0;
         }
 
-        /* Responsive Page Card */
+        /* 2. CSS 優化：確保卡片寬度適應容器 */
         .page-card { 
             transition: all 0.2s; 
             border: 2px solid transparent; 
             cursor: pointer; 
-            width: 100%; 
+            width: 100%; /* 確保滿版 */
+            box-sizing: border-box;
         }
         .page-card:hover { transform: translateY(-2px); }
         .page-card.active { border-color: #2563eb; background-color: #eff6ff; }
@@ -109,94 +88,59 @@
         .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 3px; }
         .custom-scrollbar::-webkit-scrollbar-track { background-color: transparent; }
 
-        /* Slider */
-        input[type="range"] {
-            -webkit-appearance: none; appearance: none;
-            background: #cbd5e1; border-radius: 5px; outline: none; height: 6px;
-        }
-        input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none; width: 18px; height: 18px;
-            border-radius: 50%; background: #2563eb; cursor: pointer;
-            border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-        }
+        input[type="range"] { -webkit-appearance: none; appearance: none; background: #cbd5e1; border-radius: 5px; outline: none; height: 6px; }
+        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #2563eb; cursor: pointer; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
 
-        /* Checkbox */
         .toggle-checkbox:checked { right: 0; border-color: #68D391; }
         .toggle-checkbox:checked + .toggle-label { background-color: #68D391; }
 
-        /* OCR Box Styling */
         .ocr-box { 
-            position: absolute; 
-            z-index: 40; 
-            border-radius: 2px; 
-            font-family: 'Noto Sans TC', sans-serif;
-            font-size: 12px;
-            overflow: hidden;
-            padding: 1px;
-            line-height: 1.2;
-            cursor: pointer; 
+            position: absolute; z-index: 40; border-radius: 2px; font-family: 'Noto Sans TC', sans-serif; font-size: 12px; overflow: hidden; padding: 1px; line-height: 1.2; 
+            width: 100%; height: auto; /* 響應式基礎 */
         }
         
-        /* Manual Box */
-        .ocr-box.manual {
-            background-color: rgba(255, 255, 255, 0.8) !important;
-            color: black !important;
-            border: 1px solid #666;
+        .ocr-box.manual { 
+            background-color: rgba(255, 255, 255, 0.9) !important; 
+            color: black !important; 
+            border: 1px solid #666; 
             cursor: text; 
             overflow: visible; 
-            white-space: normal;
+            white-space: normal; 
         }
 
-        /* AI Box (No Text) */
-        .ocr-box.ai { color: transparent; }
+        .ocr-box.ai { 
+            color: transparent; 
+            cursor: move; 
+        }
         
         .click-through .ocr-box { pointer-events: none !important; }
 
-        /* Selected State */
-        .ocr-box.selected {
-            border: 2px solid #2563eb !important; 
-            box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.3);
-            z-index: 60;
-        }
+        .ocr-box.selected { border: 2px solid #2563eb !important; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.3); z-index: 60; }
         
         /* Handles */
         .resize-handle {
-            position: absolute; width: 12px; height: 12px;
-            background-color: #2563eb; border: 2px solid white;
-            bottom: -6px; right: -6px; cursor: se-resize;
-            border-radius: 50%; display: none; z-index: 61;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            position: absolute; width: 14px; height: 14px; background-color: #2563eb; border: 2px solid white; bottom: -7px; right: -7px; cursor: se-resize; border-radius: 50%; display: none; z-index: 61; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         }
         .ocr-box.selected .resize-handle { display: block; }
 
         .move-handle {
-            position: absolute; width: 24px; height: 24px;
-            background-color: #2563eb; top: -12px; left: 50%; transform: translateX(-50%);
-            cursor: move; border-radius: 4px; display: none; 
-            align-items: center; justify-content: center; z-index: 62;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+            position: absolute; width: 24px; height: 24px; background-color: #2563eb; top: -20px; left: 50%; transform: translateX(-50%); cursor: move; border-radius: 4px; display: none; align-items: center; justify-content: center; z-index: 62; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
         }
         .move-handle::after { content: '+'; color: white; font-size: 18px; font-weight: bold; line-height: 1; }
         .ocr-box.manual.selected .move-handle { display: flex; }
 
+        /* Delete Handle - Bottom Left */
         .delete-handle {
-            position: absolute; width: 20px; height: 20px;
-            background-color: #ef4444; top: -10px; right: -10px;
-            cursor: pointer; border-radius: 50%; display: none;
-            align-items: center; justify-content: center; z-index: 63;
-            border: 2px solid white; box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+            position: absolute; width: 20px; height: 20px; background-color: #ef4444; bottom: -10px; left: -10px; cursor: pointer; border-radius: 50%; display: none; align-items: center; justify-content: center; z-index: 63; border: 2px solid white; box-shadow: 0 1px 2px rgba(0,0,0,0.2);
         }
         .delete-handle::after { content: '×'; color: white; font-size: 14px; font-weight: bold; line-height: 1; }
-        .ocr-box.manual.selected .delete-handle { display: flex; }
+        .ocr-box.selected .delete-handle { display: flex; }
 
         .ocr-box.keep { border: 1px solid #22c55e; background-color: rgba(34, 197, 94, 0.1); }
         .ocr-box.reconstruct { border: 2px solid #ef4444; background-color: rgba(239, 68, 68, 0.15); }
         .ocr-box.overlay { border: 1px dashed #3b82f6; background-color: rgba(59, 130, 246, 0.1); }
 
-        .loader {
-            border: 3px solid #e5e7eb; border-top: 3px solid #2563eb; border-radius: 50%;
-            width: 24px; height: 24px; animation: spin 1s linear infinite;
-        }
+        .loader { border: 3px solid #e5e7eb; border-top: 3px solid #2563eb; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
         @media (max-width: 640px) {
@@ -204,7 +148,8 @@
             .ocr-box { border-width: 1px; } 
             #sidebar { width: 80px; } 
             #sidebar .page-info { display: none; } 
-            #toolbar { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            /* 3. Toolbar 優化：確保在手機上可橫向滾動 */
+            #toolbar { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100vw; }
         }
     </style>
 </head>
@@ -213,10 +158,10 @@
     <!-- Header -->
     <header class="bg-white shadow-sm z-30 p-2 sm:p-3 flex justify-between items-center shrink-0 h-14 sm:h-16 relative w-full">
         <div class="flex items-center gap-2">
-            <div class="bg-indigo-600 text-white p-1 sm:p-1.5 rounded-lg font-bold text-lg sm:text-xl">V37.23</div>
+            <div class="bg-indigo-600 text-white p-1 sm:p-1.5 rounded-lg font-bold text-lg sm:text-xl">V37.29</div>
             <div class="flex flex-col">
                 <h1 class="text-base sm:text-lg font-bold leading-tight hidden sm:block">AI 視覺重繪版</h1>
-                <span class="text-[10px] text-slate-500 font-bold hidden sm:block">響應式 + 自動更新修復</span>
+                <span class="text-[10px] text-slate-500 font-bold hidden sm:block">響應式適配版</span>
             </div>
         </div>
         
@@ -226,17 +171,16 @@
             </div>
             
             <label class="bg-slate-800 hover:bg-slate-900 text-white px-2 sm:px-3 py-1.5 sm:py-2 rounded cursor-pointer flex items-center gap-2 text-xs sm:text-sm shadow transition">
-                <i data-lucide="folder-open" class="w-4 h-4"></i> <span class="hidden sm:inline">開啟 PDF/PPTX</span>
+                <i data-lucide="folder-open" class="w-4 h-4"></i> <span class="hidden sm:inline">開啟檔案</span>
                 <input type="file" id="fileInput" accept=".pdf,.pptx" class="hidden">
             </label>
             
-            <!-- Manual Force Update Button -->
-            <button onclick="forceUpdate()" class="bg-red-50 hover:bg-red-100 text-red-600 px-2 sm:px-3 py-1.5 sm:py-2 rounded flex items-center gap-2 text-xs sm:text-sm shadow transition border border-red-200" title="強制清除快取並更新">
+            <button onclick="forceUpdate()" class="bg-red-50 hover:bg-red-100 text-red-600 px-2 sm:px-3 py-1.5 sm:py-2 rounded flex items-center gap-2 text-xs sm:text-sm shadow transition border border-red-200" title="強制重整">
                 <i data-lucide="refresh-cw" class="w-4 h-4"></i>
             </button>
             
             <button id="downloadBtn" onclick="exportPPT()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2 sm:px-3 py-1.5 sm:py-2 rounded flex items-center gap-2 text-xs sm:text-sm shadow disabled:opacity-50 disabled:cursor-not-allowed transition" disabled>
-                <i data-lucide="download" class="w-4 h-4"></i> <span class="hidden sm:inline">下載 PPT</span>
+                <i data-lucide="download" class="w-4 h-4"></i> <span class="hidden sm:inline">下載</span>
             </button>
         </div>
     </header>
@@ -274,15 +218,15 @@
                     </div>
 
                     <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
-                        <button onclick="setMode('select')" id="btn-mode-select" class="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition bg-white shadow text-indigo-700" title="選取/手動調整模式">
+                        <button onclick="setMode('select')" id="btn-mode-select" class="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition bg-white shadow text-indigo-700" title="選取">
                             <i data-lucide="mouse-pointer-2" class="w-4 h-4"></i>
                         </button>
-                        <button onclick="setMode('brush')" id="btn-mode-brush" class="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition text-slate-500 hover:text-slate-700" title="塗鴉/手動遮蓋模式">
+                        <button onclick="setMode('brush')" id="btn-mode-brush" class="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition text-slate-500 hover:text-slate-700" title="塗鴉">
                             <i data-lucide="brush" class="w-4 h-4"></i>
                         </button>
                     </div>
                     
-                    <label class="flex items-center gap-2 cursor-pointer bg-slate-50 border px-2 py-1.5 rounded-lg hover:bg-slate-100 transition select-none ml-2" title="自動合併相鄰的文字段落">
+                    <label class="flex items-center gap-2 cursor-pointer bg-slate-50 border px-2 py-1.5 rounded-lg hover:bg-slate-100 transition select-none ml-2" title="自動合併">
                         <input type="checkbox" id="mergeToggle" class="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4" onchange="toggleMerge()" checked>
                         <span class="text-xs font-bold text-slate-700 hidden sm:inline"><i data-lucide="merge" class="w-3 h-3 inline mr-1"></i>合併</span>
                         <span class="text-xs font-bold text-slate-700 sm:hidden"><i data-lucide="merge" class="w-3 h-3"></i></span>
@@ -294,36 +238,40 @@
                         <i data-lucide="scan-eye" class="w-4 h-4"></i> <span class="hidden sm:inline">AI 辨識</span>
                     </button>
 
-                    <button onclick="addTextBox()" class="bg-emerald-50 text-emerald-700 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-emerald-100 transition border border-emerald-200 shadow-sm whitespace-nowrap" title="手動新增文字框">
+                    <button onclick="smartRefinePage()" class="bg-purple-50 text-purple-700 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-purple-100 transition border border-purple-200 shadow-sm whitespace-nowrap" title="去噪校正">
+                        <i data-lucide="sparkles" class="w-4 h-4"></i> <span class="hidden sm:inline">去噪校正</span>
+                    </button>
+
+                    <button onclick="addTextBox()" class="bg-emerald-50 text-emerald-700 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-emerald-100 transition border border-emerald-200 shadow-sm whitespace-nowrap" title="手動新增">
                         <i data-lucide="plus-square" class="w-4 h-4"></i> <span class="hidden sm:inline">新增框</span>
                     </button>
 
                     <div class="flex items-center gap-2 border-l pl-2 sm:pl-3 bg-slate-50 p-1 rounded-lg border border-slate-200">
-                        <button id="eyedropperBtn" onclick="toggleEyedropper()" class="p-1.5 border rounded bg-white hover:bg-slate-100 text-slate-600 transition shadow-sm" title="吸取背景色 (用於遮蓋)">
+                        <button id="eyedropperBtn" onclick="toggleEyedropper()" class="p-1.5 border rounded bg-white hover:bg-slate-100 text-slate-600 transition shadow-sm" title="吸管">
                             <i data-lucide="pipette" class="w-4 h-4"></i>
                         </button>
-                        <div class="relative w-8 h-8 rounded border overflow-hidden shadow-sm cursor-pointer hover:scale-105 transition" title="點擊選擇遮罩顏色 (會自動偵測)">
+                        <div class="relative w-8 h-8 rounded border overflow-hidden shadow-sm cursor-pointer hover:scale-105 transition">
                              <input type="color" id="maskColor" value="#FFFFFF" class="absolute -top-2 -left-2 w-16 h-16 p-0 border-0 cursor-pointer">
                         </div>
                         
                         <div class="w-px h-4 bg-slate-300 mx-1"></div>
                         
                         <div class="flex flex-col justify-center px-1">
-                             <span class="text-[9px] text-slate-400 font-bold mb-0.5 whitespace-nowrap">字體: <span id="fontScaleVal">1.0</span>x</span>
+                             <span class="text-[9px] text-slate-400 font-bold mb-0.5 whitespace-nowrap">字體</span>
                              <input type="range" id="fontScale" min="0.5" max="1.5" step="0.1" value="1.0" class="w-16 sm:w-20" oninput="document.getElementById('fontScaleVal').textContent=this.value">
                         </div>
 
                         <div class="flex flex-col justify-center px-1 border-l pl-2 ml-1">
-                             <span class="text-[9px] text-red-400 font-bold mb-0.5 whitespace-nowrap">擴張: <span id="maskExpVal">1.2</span>x</span>
-                             <input type="range" id="maskExpansion" min="0.0" max="2.0" step="0.1" value="1.2" class="w-16 sm:w-20" oninput="document.getElementById('maskExpVal').textContent=this.value">
+                             <span class="text-[9px] text-red-400 font-bold mb-0.5 whitespace-nowrap">遮罩</span>
+                             <input type="range" id="maskExpansion" min="1.0" max="1.5" step="0.05" value="1.0" class="w-16 sm:w-20" oninput="document.getElementById('maskExpVal').textContent=this.value">
                         </div>
 
                         <div class="w-px h-4 bg-slate-300 mx-1"></div>
 
-                        <button onclick="undoLastStroke()" class="text-slate-500 hover:text-indigo-600 p-1.5 transition border rounded bg-white shadow-sm" title="復原上一筆">
+                        <button onclick="undoLastStroke()" class="text-slate-500 hover:text-indigo-600 p-1.5 transition border rounded bg-white shadow-sm">
                             <i data-lucide="undo-2" class="w-4 h-4"></i>
                         </button>
-                        <button onclick="clearMask()" class="text-slate-400 hover:text-red-500 p-1.5 transition" title="清除所有塗鴉">
+                        <button onclick="clearMask()" class="text-slate-400 hover:text-red-500 p-1.5 transition">
                             <i data-lucide="trash-2" class="w-4 h-4"></i>
                         </button>
                     </div>
@@ -355,15 +303,12 @@
                     <span class="text-green-600">🟩 保留</span>
                     <span class="text-gray-300">|</span>
                     <span class="text-red-500">🟥 重建</span>
-                    <span class="text-gray-300">|</span>
                     <span class="text-blue-500">🟦 疊加</span>
-                    <span class="text-gray-300">|</span>
-                    <span class="text-slate-500">🖱️ 拖曳調整</span>
+                    <span class="text-slate-500">🖱️ 編輯</span>
                 </div>
             </div>
         </div>
-        <!-- Watermark for debugging -->
-        <div class="version-watermark">V37.23</div>
+        <div class="version-watermark">V37.29</div>
     </div>
 
     <script>
@@ -400,6 +345,7 @@
         const maskCanvas = document.getElementById('maskCanvas');
         const maskCtx = maskCanvas.getContext('2d');
         const canvasLoader = document.getElementById('canvasLoader');
+        const loaderText = document.getElementById('loaderText');
         const zoomLabel = document.getElementById('zoomLabel');
         
         const maskColorInput = document.getElementById('maskColor');
@@ -409,6 +355,13 @@
         const mergeToggle = document.getElementById('mergeToggle');
         const fontScaleInput = document.getElementById('fontScale');
         const maskExpansionInput = document.getElementById('maskExpansion');
+
+        // --- 4. 監聽 Resize 事件，動態調整畫布 ---
+        window.addEventListener('resize', () => {
+            if (currentIndex !== -1) {
+                renderPageWithZoom(pagesData[currentIndex]);
+            }
+        });
 
         // --- File Handling ---
         fileInput.onchange = async (e) => {
@@ -451,9 +404,8 @@
                 pagesData.push({
                     pageNum: i,
                     type: 'pdf',
-                    rawData: null,
+                    rawData: null, 
                     displayData: null,
-                    blockStates: [],
                     strokes: [],
                     viewport: null,
                     thumbUrl: null
@@ -493,7 +445,6 @@
                     imgUrl: url,
                     rawData: null,
                     displayData: null,
-                    blockStates: [],
                     strokes: [],
                     viewport: null,
                     thumbUrl: null
@@ -555,29 +506,38 @@
             renderPageWithZoom(item);
         }
 
+        // --- 3. 響應式 Canvas 渲染邏輯 ---
         async function renderPageWithZoom(item) {
             try {
                 if(!item.viewport) return; 
 
-                // Responsive Canvas Logic
-                const isMobile = window.innerWidth < 640;
-                // On mobile, use 90% width. On Desktop, use 70% width or fixed ratio.
-                const baseW = isMobile ? window.innerWidth * 0.9 : window.innerWidth * 0.7;
-                const baseH = isMobile ? window.innerHeight * 0.6 : window.innerHeight * 0.8;
+                // 根據螢幕寬度決定畫布的縮放基準
+                const screenW = window.innerWidth;
+                const screenH = window.innerHeight;
+                const isMobile = screenW < 768; // 平板以下視為 Mobile
+
+                // Mobile: 95% 寬度，高度較自由
+                // Desktop: 75% 寬度，高度限制 85%
+                const baseW = isMobile ? screenW * 0.95 : screenW * 0.75;
+                const baseH = isMobile ? screenH * 0.7 : screenH * 0.85;
                 
                 const ratio = item.viewport.width / item.viewport.height;
                 let finalW, finalH;
+                
+                // 計算最適合的尺寸 (Contain 模式)
                 if (baseW / baseH > ratio) {
-                     finalH = baseH * zoomLevel; finalW = finalH * ratio;
+                     finalH = baseH * zoomLevel; 
+                     finalW = finalH * ratio;
                 } else {
-                     finalW = baseW * zoomLevel; finalH = finalW / ratio;
+                     finalW = baseW * zoomLevel; 
+                     finalH = finalW / ratio;
                 }
 
                 canvasContainer.style.width = `${finalW}px`;
                 canvasContainer.style.height = `${finalH}px`;
                 canvasContainer.classList.remove('hidden');
 
-                const scale = 2.0 * zoomLevel;
+                const scale = 2.0 * zoomLevel; // 高解析度渲染
                 pdfCanvas.width = item.viewport.width * scale; 
                 pdfCanvas.height = item.viewport.height * scale;
                 maskCanvas.width = pdfCanvas.width;
@@ -588,7 +548,10 @@
 
                 if (item.type === 'pdf') {
                     const page = await pdfDoc.getPage(item.pageNum);
-                    await page.render({ canvasContext: ctx, viewport: page.getViewport({ scale: scale * (item.viewport.width / page.getViewport({scale:1}).width) }) }).promise;
+                    await page.render({ 
+                        canvasContext: ctx, 
+                        viewport: page.getViewport({ scale: scale * (item.viewport.width / page.getViewport({scale:1}).width) }) 
+                    }).promise;
                 } else {
                     const img = new Image();
                     img.src = item.imgUrl;
@@ -598,7 +561,7 @@
 
                 autoPickBackgroundColor();
                 redrawStrokes(item);
-                if (!item.displayData && item.rawData) processData(item);
+                if (item.rawData) processData(item);
                 renderTextOverlay(item);
                 updateStatus(item);
                 setMode(editMode);
@@ -700,12 +663,10 @@
             const rect = maskCanvas.getBoundingClientRect();
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            
             const scaleX = pdfCanvas.width / rect.width;
             const scaleY = pdfCanvas.height / rect.height;
             const x = (clientX - rect.left) * scaleX;
             const y = (clientY - rect.top) * scaleY;
-            
             const p = pdfCanvas.getContext('2d').getImageData(x, y, 1, 1).data;
             const hex = "#" + ((1 << 24) + (p[0] << 16) + (p[1] << 8) + p[2]).toString(16).slice(1);
             maskColorInput.value = hex;
@@ -716,48 +677,60 @@
             editMode = mode;
             btnModeSelect.className = mode==='select' ? "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition bg-white shadow text-indigo-700" : "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition text-slate-500";
             btnModeBrush.className = mode==='brush' ? "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition bg-white shadow text-indigo-700" : "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition text-slate-500";
-            
             maskCanvas.style.pointerEvents = mode === 'brush' ? 'auto' : 'none';
             textOverlay.style.pointerEvents = mode === 'select' ? 'auto' : 'none';
             textOverlay.classList.toggle('click-through', mode !== 'select');
             textOverlay.style.opacity = mode === 'select' ? '1' : '0.4';
-            
             if (mode === 'brush') {
                 selectedBlockIndex = -1;
                 if(currentIndex !== -1) renderTextOverlay(pagesData[currentIndex]);
             }
         }
 
-        // --- Core Logic ---
+        function uuid() {
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0.3 | 0.8);
+                return v.toString(16);
+            });
+        }
+
         function addTextBox() {
             if (currentIndex === -1) {
                 alert("請先上傳並選擇一個頁面");
                 return;
             }
             const item = pagesData[currentIndex];
-            if (!item.displayData) item.displayData = []; 
+            if (!item.rawData) item.rawData = [];
 
             const newBlock = {
+                id: uuid(),
                 text: "新增文字",
                 box_2d: [450, 400, 500, 600], 
                 font_size: 12,
                 color: "#000000",
                 is_bold: false,
                 align: "left",
-                isManual: true 
+                isManual: true,
+                state: 1 // Default to Reconstruct
             };
             
-            item.displayData.push(newBlock);
-            item.blockStates.push(1); 
-            renderTextOverlay(item);
+            item.rawData.push(newBlock);
+            processData(item);
+            
             selectedBlockIndex = item.displayData.length - 1;
             renderTextOverlay(item); 
         }
         
         function deleteBlock(index) {
             const item = pagesData[currentIndex];
-            item.displayData.splice(index, 1);
-            item.blockStates.splice(index, 1);
+            const blockToDelete = item.displayData[index];
+            if (!blockToDelete) return;
+
+            // Remove from rawData using sourceIds (if merged) or id (if single)
+            const idsToRemove = blockToDelete.sourceIds || [blockToDelete.id];
+            item.rawData = item.rawData.filter(raw => !idsToRemove.includes(raw.id));
+            
+            processData(item);
             selectedBlockIndex = -1;
             renderTextOverlay(item);
             updateStatus(item);
@@ -775,61 +748,121 @@
             if (!item.rawData) return;
             const shouldMerge = mergeToggle.checked;
             
+            // Clone rawData to avoid mutating source
+            let workingData = JSON.parse(JSON.stringify(item.rawData));
+            
             if (shouldMerge) {
-                item.displayData = mergeTextBlocks(JSON.parse(JSON.stringify(item.rawData)));
+                item.displayData = mergeTextBlocks(workingData);
             } else {
-                item.displayData = JSON.parse(JSON.stringify(item.rawData));
-            }
-
-            if (item.blockStates.length !== item.displayData.length) {
-                item.blockStates = new Array(item.displayData.length).fill(1);
+                item.displayData = workingData;
             }
         }
 
         function mergeTextBlocks(blocks) {
             if (!blocks || blocks.length === 0) return [];
-            blocks.sort((a, b) => (a.box_2d[0] - b.box_2d[0]) || (a.box_2d[1] - b.box_2d[1]));
+            
+            // Sort by Top, then Left
+            blocks.sort((a, b) => {
+                const yDiff = Math.abs(a.box_2d[0] - b.box_2d[0]);
+                if (yDiff < 15) { 
+                    return a.box_2d[1] - b.box_2d[1];
+                }
+                return a.box_2d[0] - b.box_2d[0];
+            });
             
             let merged = [];
-            if(blocks.length > 0) merged.push(blocks[0]);
-
-            for (let i = 1; i < blocks.length; i++) {
+            
+            for (let i = 0; i < blocks.length; i++) {
                 let curr = blocks[i];
+                
+                // If noise block (empty text), don't merge it into text stream, just keep it as is
+                if (!curr.text || curr.text.trim() === "") {
+                    merged.push(curr);
+                    continue;
+                }
+
+                if (merged.length === 0) {
+                    // Initialize sourceIds
+                    if (!curr.sourceIds) curr.sourceIds = [curr.id];
+                    merged.push(curr);
+                    continue;
+                }
+
                 let prev = merged[merged.length - 1];
+                
+                // Don't merge if previous was noise
+                if (!prev.text || prev.text.trim() === "") {
+                    if (!curr.sourceIds) curr.sourceIds = [curr.id];
+                    merged.push(curr);
+                    continue;
+                }
 
                 let fontSizeMatch = Math.abs((curr.font_size || 0) - (prev.font_size || 0)) < 3;
                 let vDist = curr.box_2d[0] - prev.box_2d[2]; 
                 let hOverlap = !(curr.box_2d[1] > prev.box_2d[3] || curr.box_2d[3] < prev.box_2d[1]);
                 let alignLeft = Math.abs(curr.box_2d[1] - prev.box_2d[1]) < 50; 
+                
+                // 水平合併條件：同高度 & 距離近
+                const vAlign = Math.abs(curr.box_2d[0] - prev.box_2d[0]) < 15;
+                const hDist = curr.box_2d[1] - prev.box_2d[3];
+                const hConnect = hDist < 60 && hDist > -20;
 
-                if (fontSizeMatch && vDist < 50 && (hOverlap || alignLeft)) {
-                    prev.text += " " + curr.text;
-                    prev.box_2d[2] = curr.box_2d[2]; 
-                    prev.box_2d[3] = Math.max(prev.box_2d[3], curr.box_2d[3]); 
-                    prev.box_2d[1] = Math.min(prev.box_2d[1], curr.box_2d[1]); 
+                const vConnect = vDist < 50 && vDist > -10;
+
+                let doMerge = false;
+                if (fontSizeMatch) {
+                    if (vAlign && hConnect) doMerge = true;
+                    else if (vConnect && alignLeft) doMerge = true;
+                }
+                
+                if (doMerge) {
+                    // Merge!
+                    let sep = " ";
+                    // CJK check
+                    const prevChar = prev.text[prev.text.length - 1];
+                    const currChar = curr.text[0];
+                    const isCJK = (c) => /[\u4e00-\u9fa5]/.test(c);
+                    if (isCJK(prevChar) && isCJK(currChar)) sep = "";
+
+                    prev.text += sep + curr.text;
+                    prev.box_2d[0] = Math.min(prev.box_2d[0], curr.box_2d[0]);
+                    prev.box_2d[1] = Math.min(prev.box_2d[1], curr.box_2d[1]);
+                    prev.box_2d[2] = Math.max(prev.box_2d[2], curr.box_2d[2]);
+                    prev.box_2d[3] = Math.max(prev.box_2d[3], curr.box_2d[3]);
+                    
+                    // Combine IDs
+                    if (!prev.sourceIds) prev.sourceIds = [prev.id];
+                    if (!curr.sourceIds) curr.sourceIds = [curr.id]; // Should be single usually
+                    prev.sourceIds = [...prev.sourceIds, ...curr.sourceIds];
+                    
+                    if (prev.state !== curr.state) prev.state = 1;
+
                 } else {
+                    if (!curr.sourceIds) curr.sourceIds = [curr.id];
                     merged.push(curr);
                 }
             }
             return merged;
         }
 
-        // --- Interaction Logic (Fixed V37.19) ---
+        // --- Interaction Logic (Fixed V37.28) ---
         function handleOverlayMouseDown(e) {
             if (editMode !== 'select') return;
             const item = pagesData[currentIndex];
             if (!item || !item.displayData) return;
 
-            // Allow clicking inside manual text to edit
-            if (e.target.isContentEditable) return;
-            
-            // Handle Delete click
-            if (e.target.classList.contains('delete-handle')) return;
+            // Handle Delete click (Now allowed for ALL boxes)
+            if (e.target.classList.contains('delete-handle')) {
+                // Logic handled in click event of the handle itself, but stop prop here just in case
+                e.stopPropagation();
+                return;
+            }
+
+            if (e.target.isContentEditable && e.target.classList.contains('selected')) return;
 
             const rect = textOverlay.getBoundingClientRect();
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            
             const mouseX = clientX - rect.left;
             const mouseY = clientY - rect.top;
             
@@ -842,7 +875,7 @@
                 return;
             }
             
-            // Check Move Handle (Manual Box)
+            // Check Move Handle
             if (e.target.classList.contains('move-handle')) {
                 dragAction = 'move';
                 dragStart = { x: mouseX, y: mouseY };
@@ -851,7 +884,7 @@
                 return;
             }
 
-            // Check Box Body (AI Box only)
+            // Check Box Body
             const targetBox = e.target.closest('.ocr-box');
             if (targetBox) {
                 const children = Array.from(textOverlay.children);
@@ -861,24 +894,19 @@
                     const block = item.displayData[idx];
 
                     if (idx === selectedBlockIndex) {
-                        // Already selected. 
-                        // If it's an AI box (not manual), we allow body drag.
-                        if (!block.isManual) {
-                            dragAction = 'move';
-                            dragStart = { x: mouseX, y: mouseY };
-                            activeBlockData = JSON.parse(JSON.stringify(block.box_2d));
-                        }
+                        // Already selected. Drag body to move.
+                        dragAction = 'move';
+                        dragStart = { x: mouseX, y: mouseY };
+                        activeBlockData = JSON.parse(JSON.stringify(block.box_2d));
                     } else {
                         // Select new box
                         selectedBlockIndex = idx;
                         renderTextOverlay(item); 
                         
-                        // Immediate drag start for AI box
-                        if (!block.isManual) {
-                            dragAction = 'move';
-                            dragStart = { x: mouseX, y: mouseY };
-                            activeBlockData = JSON.parse(JSON.stringify(block.box_2d));
-                        }
+                        // Immediate drag start
+                        dragAction = 'move';
+                        dragStart = { x: mouseX, y: mouseY };
+                        activeBlockData = JSON.parse(JSON.stringify(block.box_2d));
                     }
                     e.stopPropagation();
                 }
@@ -893,7 +921,6 @@
         function handleOverlayMouseMove(e) {
             if (!dragAction || selectedBlockIndex === -1) return;
             const item = pagesData[currentIndex];
-            
             const rect = textOverlay.getBoundingClientRect();
             const clientX = e.touches ? e.touches[0].clientX : e.clientX;
             const clientY = e.touches ? e.touches[0].clientY : e.clientY;
@@ -903,7 +930,6 @@
             const mouseY = clientY - rect.top;
             const deltaX = mouseX - dragStart.x;
             const deltaY = mouseY - dragStart.y;
-            
             const scaleX = 1000 / rect.width;
             const scaleY = 1000 / rect.height;
             const dX_1000 = deltaX * scaleX;
@@ -922,6 +948,10 @@
                 block.box_2d[3] = Math.max(block.box_2d[1] + 10, initial[3] + dX_1000);
             }
             
+            // Sync changes back to rawData if possible
+            // Note: Since merging combines IDs, moving a merged block should ideally move all raw constituents.
+            // Simplified: We only update displayData live. We should sync back on mouseUp.
+            
             const div = textOverlay.children[selectedBlockIndex];
             if (div) {
                 const y = block.box_2d[0]/10; const x = block.box_2d[1]/10;
@@ -932,6 +962,29 @@
         }
 
         function handleOverlayMouseUp(e) {
+            if (dragAction && selectedBlockIndex !== -1) {
+                // Sync displayData changes back to rawData
+                const item = pagesData[currentIndex];
+                const block = item.displayData[selectedBlockIndex];
+                const ids = block.sourceIds || [block.id];
+                
+                // For a merged block, we can't easily "split" the move back to individual raw blocks if they were spaced.
+                // But typically moving a paragraph moves all lines together.
+                // We will apply the delta of the Top-Left corner to all raw constituents.
+                if (activeBlockData) {
+                    const deltaY = block.box_2d[0] - activeBlockData[0];
+                    const deltaX = block.box_2d[1] - activeBlockData[1];
+                    
+                    item.rawData.forEach(raw => {
+                        if (ids.includes(raw.id)) {
+                            raw.box_2d[0] += deltaY;
+                            raw.box_2d[2] += deltaY;
+                            raw.box_2d[1] += deltaX;
+                            raw.box_2d[3] += deltaX;
+                        }
+                    });
+                }
+            }
             dragAction = null;
             activeBlockData = null;
         }
@@ -942,7 +995,9 @@
             
             item.displayData.forEach((block, idx) => {
                 const div = document.createElement('div');
-                const state = item.blockStates[idx] !== undefined ? item.blockStates[idx] : 1;
+                // Use internal state or default to 1
+                const state = block.state !== undefined ? block.state : 1;
+                
                 let cssClass = 'keep';
                 if (state === 1) cssClass = 'reconstruct';
                 else if (state === 2) cssClass = 'overlay';
@@ -952,11 +1007,18 @@
                 }
                 
                 const isManual = !!block.isManual;
+                const isSelected = (idx === selectedBlockIndex);
+
                 if (isManual) {
                     div.classList.add('manual');
-                    div.setAttribute('contenteditable', 'true');
+                    div.setAttribute('contenteditable', isSelected ? 'true' : 'false');
                     div.textContent = block.text;
-                    div.addEventListener('input', () => { block.text = div.textContent; });
+                    div.addEventListener('input', () => { 
+                        block.text = div.textContent; 
+                        // Update rawData text as well
+                        const ids = block.sourceIds || [block.id];
+                        item.rawData.forEach(r => { if(ids.includes(r.id)) r.text = block.text; });
+                    });
                 } else {
                     div.classList.add('ai');
                     div.setAttribute('contenteditable', 'false');
@@ -970,34 +1032,40 @@
                 div.style.top = `${y}%`; div.style.left = `${x}%`; div.style.width = `${w}%`; div.style.height = `${h}%`;
                 
                 if (idx === selectedBlockIndex) {
-                    // Resize Handle
                     const resizeHandle = document.createElement('div');
                     resizeHandle.className = 'resize-handle';
                     resizeHandle.contentEditable = "false";
                     div.appendChild(resizeHandle);
                     
-                    // Move Handle (For Manual Boxes)
                     if (isManual) {
                         const moveHandle = document.createElement('div');
                         moveHandle.className = 'move-handle';
                         moveHandle.contentEditable = "false";
                         div.appendChild(moveHandle);
-                        
-                        const deleteHandle = document.createElement('div');
-                        deleteHandle.className = 'delete-handle';
-                        deleteHandle.contentEditable = "false";
-                        deleteHandle.onclick = (e) => {
-                            e.stopPropagation();
-                            deleteBlock(idx);
-                        };
-                        div.appendChild(deleteHandle);
                     }
+
+                    // Delete handle for everyone now
+                    const deleteHandle = document.createElement('div');
+                    deleteHandle.className = 'delete-handle';
+                    deleteHandle.contentEditable = "false";
+                    deleteHandle.onclick = (e) => {
+                        e.stopPropagation();
+                        deleteBlock(idx);
+                    };
+                    div.appendChild(deleteHandle);
                 }
 
+                // Toggle State on Double Click
                 div.addEventListener('dblclick', (e) => {
                     if (e.target !== div && isManual) return; 
                     e.stopPropagation();
-                    item.blockStates[idx] = (state + 1) % 3;
+                    const newState = (state + 1) % 3;
+                    block.state = newState;
+                    
+                    // Propagate state to rawData
+                    const ids = block.sourceIds || [block.id];
+                    item.rawData.forEach(r => { if(ids.includes(r.id)) r.state = newState; });
+                    
                     renderTextOverlay(item);
                 });
 
@@ -1020,19 +1088,25 @@
             const key = apiKeyInput.value.trim();
             if (!key) return alert('請輸入 API Key');
             canvasLoader.classList.remove('hidden');
+            loaderText.textContent = "AI 視覺運算中...";
             
             try {
                 const base64 = pdfCanvas.toDataURL('image/jpeg', 0.8).split(',')[1];
                 const prompt = `Identify all text blocks for RECONSTRUCTION. Return JSON Array ONLY.
 Format: [{"text": "content", "box_2d": [ymin, xmin, ymax, xmax] (0-1000 scale), "font_size": number, "color": "hex", "is_bold": boolean, "align": "left"}]
-Important: The box_2d MUST include the full background context of the text, not just the glyphs. It should cover line spacing and margin to ensure clean removal.`;
+Important: The box_2d MUST include the full background context of the text, not just the glyphs.`;
 
                 const result = await callGemini(key, prompt, base64);
                 const item = pagesData[currentIndex];
-                item.rawData = result;
+                
+                // Initialize rawData with IDs and default state
+                item.rawData = result.map(b => ({
+                    ...b,
+                    id: uuid(),
+                    state: 1
+                }));
                 
                 processData(item);
-                item.blockStates = new Array(item.displayData.length).fill(1); 
                 autoPickBackgroundColor();
                 renderTextOverlay(item);
                 updateStatus(item);
@@ -1053,13 +1127,22 @@ Important: The box_2d MUST include the full background context of the text, not 
             const res = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error?.message || 'API Error');
-            const raw = data.candidates[0].content.parts[0].text.replace(/```json/g, '').replace(/```/g, '');
+            
+            // 增加基本的 JSON 清洗，防止 AI 回傳 ```json 導致解析失敗
+            let raw = data.candidates[0].content.parts[0].text;
+            raw = raw.replace(/```json/g, '').replace(/```/g, '');
+            // 尋找 JSON 陣列的開頭與結尾
+            const start = raw.indexOf('[');
+            const end = raw.lastIndexOf(']');
+            if(start !== -1 && end !== -1) {
+                raw = raw.substring(start, end + 1);
+            }
             return JSON.parse(raw);
         }
 
         function updateStatus(item) {
             const badge = item.el.querySelector('.status-badge');
-            if (item.rawData) {
+            if (item.rawData && item.rawData.length > 0) {
                 badge.textContent = '已分析';
                 badge.className = 'status-badge text-[10px] bg-indigo-100 text-indigo-600 px-2 py-1 rounded-full inline-block';
                 statusTextEl.textContent = `✅ 偵測到 ${item.displayData.length} 個區塊`;
@@ -1071,7 +1154,7 @@ Important: The box_2d MUST include the full background context of the text, not 
         }
 
         function checkAllDone() {
-            const ready = pagesData.some(p => p.rawData || p.strokes.length > 0);
+            const ready = pagesData.some(p => (p.rawData && p.rawData.length > 0) || p.strokes.length > 0);
             document.getElementById('downloadBtn').disabled = !ready;
         }
 
@@ -1087,12 +1170,95 @@ Important: The box_2d MUST include the full background context of the text, not 
             alert('全部分析完成！');
         }
 
+        // --- AI Refine Function (Iterative Denoise + Merge) ---
+        async function smartRefinePage() {
+            const key = apiKeyInput.value.trim();
+            if (!key) return alert('請輸入 API Key');
+            if (currentIndex === -1 || !pagesData[currentIndex].rawData) {
+                 return alert('請先進行 AI 辨識');
+            }
+            
+            canvasLoader.classList.remove('hidden');
+            loaderText.textContent = "AI 深度去噪校正中...";
+            
+            try {
+                const item = pagesData[currentIndex];
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = pdfCanvas.width;
+                tempCanvas.height = pdfCanvas.height;
+                const ctx = tempCanvas.getContext('2d');
+                
+                // Draw original
+                ctx.drawImage(pdfCanvas, 0, 0);
+                
+                // Draw existing masks based on CURRENT display state
+                const maskHex = maskColorInput.value;
+                ctx.fillStyle = maskHex;
+                if (item.displayData) {
+                    item.displayData.forEach((block) => {
+                        const state = block.state !== undefined ? block.state : 1;
+                        if (state === 1) { // Red box
+                            const y = (block.box_2d[0] / 1000) * tempCanvas.height;
+                            const x = (block.box_2d[1] / 1000) * tempCanvas.width;
+                            const h = ((block.box_2d[2] - block.box_2d[0]) / 1000) * tempCanvas.height;
+                            const w = ((block.box_2d[3] - block.box_2d[1]) / 1000) * tempCanvas.width;
+                            ctx.fillRect(x - 2, y - 2, w + 4, h + 4); 
+                        }
+                    });
+                }
+                
+                const base64 = tempCanvas.toDataURL('image/jpeg', 0.8).split(',')[1];
+
+                const prompt = `
+                The provided image has the main text content masked out. 
+                Identify ALL remaining visible non-background elements (text parts, noise, debris).
+                Return JSON Array ONLY:
+                [{"text": "", "box_2d": [ymin, xmin, ymax, xmax] (0-1000 scale)}]
+                `;
+
+                const result = await callGemini(key, prompt, base64);
+                
+                if (result && result.length > 0) {
+                    // Append new blocks to rawData
+                    const newBlocks = result.map(b => ({
+                        ...b,
+                        id: uuid(),
+                        text: "", // Force empty text for noise masks
+                        font_size: 10,
+                        color: "#000000",
+                        is_bold: false,
+                        align: "left",
+                        isManual: false,
+                        state: 1 // Default to Reconstruct (Mask)
+                    }));
+                    
+                    if (!item.rawData) item.rawData = [];
+                    item.rawData.push(...newBlocks);
+                    
+                    // Automatically Re-evaluate Merge
+                    processData(item);
+                    
+                    renderTextOverlay(item);
+                    updateStatus(item);
+                    alert(`已校正並移除 ${newBlocks.length} 個殘留雜訊，並重新執行版面合併。`);
+                } else {
+                    alert("AI 未發現明顯殘留雜訊");
+                }
+                
+            } catch (e) {
+                alert('校正失敗: ' + e.message);
+            } finally {
+                canvasLoader.classList.add('hidden');
+                loaderText.textContent = "AI 視覺運算中...";
+            }
+        }
+
         async function exportPPT() {
             const btn = document.getElementById('downloadBtn');
             btn.disabled = true; btn.textContent = '生成中...';
             
             const userFontScale = parseFloat(fontScaleInput.value) || 1.0;
-            const maskExpansion = parseFloat(maskExpansionInput.value) || 1.2;
+            const maskExpansion = parseFloat(maskExpansionInput.value) || 1.0;
 
             try {
                 const pptx = new PptxGenJS();
@@ -1120,8 +1286,9 @@ Important: The box_2d MUST include the full background context of the text, not 
 
                     const maskHex = maskColorInput.value;
                     if (item.displayData) {
-                        item.displayData.forEach((block, idx) => {
-                            if (item.blockStates[idx] === 1) { 
+                        item.displayData.forEach((block) => {
+                            const state = block.state !== undefined ? block.state : 1;
+                            if (state === 1) { 
                                 const y = (block.box_2d[0] / 1000) * tempCanvas.height;
                                 const x = (block.box_2d[1] / 1000) * tempCanvas.width;
                                 const h = ((block.box_2d[2] - block.box_2d[0]) / 1000) * tempCanvas.height;
@@ -1166,9 +1333,10 @@ Important: The box_2d MUST include the full background context of the text, not 
                     }
 
                     if (item.displayData) {
-                        item.displayData.forEach((block, idx) => {
-                            const state = item.blockStates[idx];
-                            if (state === 1 || state === 2) {
+                        item.displayData.forEach((block) => {
+                            const state = block.state !== undefined ? block.state : 1;
+                            // Skip noise blocks (empty text)
+                            if ((state === 1 || state === 2) && block.text && block.text.trim() !== "") {
                                 const relX = block.box_2d[1] / 1000;
                                 const relY = block.box_2d[0] / 1000;
                                 const relW = (block.box_2d[3] - block.box_2d[1]) / 1000;
@@ -1180,15 +1348,12 @@ Important: The box_2d MUST include the full background context of the text, not 
                                 const pptH = relH * finalH;
 
                                 let rawSize = block.font_size || 8; 
-                                let fontSize = 10; 
-                                if (rawSize >= 10) {
-                                    fontSize = 14; 
-                                } else {
-                                    fontSize = 10; 
-                                }
+                                let mappedFontSize = 10;
+                                if (rawSize >= 10) mappedFontSize = 14; 
+                                else mappedFontSize = 10;
                                 
                                 const maxFontSizeBasedOnHeight = (pptH * 72) * 0.75; 
-                                fontSize = Math.min(fontSize, maxFontSizeBasedOnHeight);
+                                let fontSize = Math.min(mappedFontSize, maxFontSizeBasedOnHeight);
                                 fontSize = fontSize * userFontScale;
                                 fontSize = Math.min(20, Math.max(fontSize, 8));
 
@@ -1206,7 +1371,7 @@ Important: The box_2d MUST include the full background context of the text, not 
                     }
                 }
 
-                await pptx.writeFile({ fileName: 'NotebookLM_V37_19_PerfectUI.pptx' });
+                await pptx.writeFile({ fileName: 'NotebookLM_V37_28_DeepClean.pptx' });
 
             } catch (err) {
                 console.error(err);
