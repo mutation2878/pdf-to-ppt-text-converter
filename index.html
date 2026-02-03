@@ -253,7 +253,7 @@
                         <span class="text-xs font-bold text-slate-700 sm:hidden"><i data-lucide="merge" class="w-3 h-3"></i></span>
                     </label>
 
-                     <label class="flex items-center gap-2 cursor-pointer bg-slate-50 border px-2 py-1.5 rounded-lg hover:bg-slate-100 transition select-none ml-2" title="移除浮水印">
+                      <label class="flex items-center gap-2 cursor-pointer bg-slate-50 border px-2 py-1.5 rounded-lg hover:bg-slate-100 transition select-none ml-2" title="移除浮水印">
                         <input type="checkbox" id="watermarkToggle" class="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4" onchange="toggleWatermark()" checked>
                         <span class="text-xs font-bold text-slate-700 hidden sm:inline"><i data-lucide="eraser" class="w-3 h-3 inline mr-1"></i>去浮水印</span>
                         <span class="text-xs font-bold text-slate-700 sm:hidden"><i data-lucide="eraser" class="w-3 h-3"></i></span>
@@ -773,7 +773,7 @@
             const newBlock = {
                 id: uuid(),
                 text: "新增文字",
-                box_2d: [450, 400, 500, 600], 
+                box_pixels: [450, 400, 500, 600], 
                 font_size: 12,
                 color: "#000000",
                 is_bold: false,
@@ -831,11 +831,11 @@
             
             // Sort by Top, then Left
             blocks.sort((a, b) => {
-                const yDiff = Math.abs(a.box_2d[0] - b.box_2d[0]);
+                const yDiff = Math.abs(a.box_pixels[0] - b.box_pixels[0]);
                 if (yDiff < 15) { 
-                    return a.box_2d[1] - b.box_2d[1];
+                    return a.box_pixels[1] - b.box_pixels[1];
                 }
-                return a.box_2d[0] - b.box_2d[0];
+                return a.box_pixels[0] - b.box_pixels[0];
             });
             
             let merged = [];
@@ -866,13 +866,13 @@
                 }
 
                 let fontSizeMatch = Math.abs((curr.font_size || 0) - (prev.font_size || 0)) < 3;
-                let vDist = curr.box_2d[0] - prev.box_2d[2]; 
-                let hOverlap = !(curr.box_2d[1] > prev.box_2d[3] || curr.box_2d[3] < prev.box_2d[1]);
-                let alignLeft = Math.abs(curr.box_2d[1] - prev.box_2d[1]) < 50; 
+                let vDist = curr.box_pixels[0] - prev.box_pixels[2]; 
+                let hOverlap = !(curr.box_pixels[1] > prev.box_pixels[3] || curr.box_pixels[3] < prev.box_pixels[1]);
+                let alignLeft = Math.abs(curr.box_pixels[1] - prev.box_pixels[1]) < 50; 
                 
                 // 水平合併條件：同高度 & 距離近
-                const vAlign = Math.abs(curr.box_2d[0] - prev.box_2d[0]) < 15;
-                const hDist = curr.box_2d[1] - prev.box_2d[3];
+                const vAlign = Math.abs(curr.box_pixels[0] - prev.box_pixels[0]) < 15;
+                const hDist = curr.box_pixels[1] - prev.box_pixels[3];
                 const hConnect = hDist < 60 && hDist > -20;
 
                 const vConnect = vDist < 50 && vDist > -10;
@@ -893,10 +893,10 @@
                     if (isCJK(prevChar) && isCJK(currChar)) sep = "";
 
                     prev.text += sep + curr.text;
-                    prev.box_2d[0] = Math.min(prev.box_2d[0], curr.box_2d[0]);
-                    prev.box_2d[1] = Math.min(prev.box_2d[1], curr.box_2d[1]);
-                    prev.box_2d[2] = Math.max(prev.box_2d[2], curr.box_2d[2]);
-                    prev.box_2d[3] = Math.max(prev.box_2d[3], curr.box_2d[3]);
+                    prev.box_pixels[0] = Math.min(prev.box_pixels[0], curr.box_pixels[0]);
+                    prev.box_pixels[1] = Math.min(prev.box_pixels[1], curr.box_pixels[1]);
+                    prev.box_pixels[2] = Math.max(prev.box_pixels[2], curr.box_pixels[2]);
+                    prev.box_pixels[3] = Math.max(prev.box_pixels[3], curr.box_pixels[3]);
                     
                     // Combine IDs
                     if (!prev.sourceIds) prev.sourceIds = [prev.id];
@@ -938,7 +938,7 @@
             if (e.target.classList.contains('resize-handle')) {
                 dragAction = 'resize';
                 dragStart = { x: mouseX, y: mouseY };
-                activeBlockData = JSON.parse(JSON.stringify(item.displayData[selectedBlockIndex].box_2d));
+                activeBlockData = JSON.parse(JSON.stringify(item.displayData[selectedBlockIndex].box_pixels));
                 e.stopPropagation();
                 return;
             }
@@ -947,7 +947,7 @@
             if (e.target.classList.contains('move-handle')) {
                 dragAction = 'move';
                 dragStart = { x: mouseX, y: mouseY };
-                activeBlockData = JSON.parse(JSON.stringify(item.displayData[selectedBlockIndex].box_2d));
+                activeBlockData = JSON.parse(JSON.stringify(item.displayData[selectedBlockIndex].box_pixels));
                 e.stopPropagation();
                 return;
             }
@@ -965,7 +965,7 @@
                         // Already selected. Drag body to move.
                         dragAction = 'move';
                         dragStart = { x: mouseX, y: mouseY };
-                        activeBlockData = JSON.parse(JSON.stringify(block.box_2d));
+                        activeBlockData = JSON.parse(JSON.stringify(block.box_pixels));
                     } else {
                         // Select new box
                         selectedBlockIndex = idx;
@@ -974,7 +974,7 @@
                         // Immediate drag start
                         dragAction = 'move';
                         dragStart = { x: mouseX, y: mouseY };
-                        activeBlockData = JSON.parse(JSON.stringify(block.box_2d));
+                        activeBlockData = JSON.parse(JSON.stringify(block.box_pixels));
                     }
                     e.stopPropagation();
                 }
@@ -1007,13 +1007,13 @@
             const initial = activeBlockData; 
 
             if (dragAction === 'move') {
-                block.box_2d[0] = initial[0] + dY_1000;
-                block.box_2d[1] = initial[1] + dX_1000;
-                block.box_2d[2] = initial[2] + dY_1000;
-                block.box_2d[3] = initial[3] + dX_1000;
+                block.box_pixels[0] = initial[0] + dY_1000;
+                block.box_pixels[1] = initial[1] + dX_1000;
+                block.box_pixels[2] = initial[2] + dY_1000;
+                block.box_pixels[3] = initial[3] + dX_1000;
             } else if (dragAction === 'resize') {
-                block.box_2d[2] = Math.max(block.box_2d[0] + 10, initial[2] + dY_1000);
-                block.box_2d[3] = Math.max(block.box_2d[1] + 10, initial[3] + dX_1000);
+                block.box_pixels[2] = Math.max(block.box_pixels[0] + 10, initial[2] + dY_1000);
+                block.box_pixels[3] = Math.max(block.box_pixels[1] + 10, initial[3] + dX_1000);
             }
             
             // Sync changes back to rawData if possible
@@ -1022,8 +1022,8 @@
             
             const div = textOverlay.children[selectedBlockIndex];
             if (div) {
-                const y = block.box_2d[0]/10; const x = block.box_2d[1]/10;
-                const h = (block.box_2d[2]-block.box_2d[0])/10; const w = (block.box_2d[3]-block.box_2d[1])/10;
+                const y = block.box_pixels[0]/10; const x = block.box_pixels[1]/10;
+                const h = (block.box_pixels[2]-block.box_pixels[0])/10; const w = (block.box_pixels[3]-block.box_pixels[1])/10;
                 div.style.top = `${y}%`; div.style.left = `${x}%`; div.style.width = `${w}%`; div.style.height = `${h}%`;
             }
             e.preventDefault(); 
@@ -1040,15 +1040,15 @@
                 // But typically moving a paragraph moves all lines together.
                 // We will apply the delta of the Top-Left corner to all raw constituents.
                 if (activeBlockData) {
-                    const deltaY = block.box_2d[0] - activeBlockData[0];
-                    const deltaX = block.box_2d[1] - activeBlockData[1];
+                    const deltaY = block.box_pixels[0] - activeBlockData[0];
+                    const deltaX = block.box_pixels[1] - activeBlockData[1];
                     
                     item.rawData.forEach(raw => {
                         if (ids.includes(raw.id)) {
-                            raw.box_2d[0] += deltaY;
-                            raw.box_2d[2] += deltaY;
-                            raw.box_2d[1] += deltaX;
-                            raw.box_2d[3] += deltaX;
+                            raw.box_pixels[0] += deltaY;
+                            raw.box_pixels[2] += deltaY;
+                            raw.box_pixels[1] += deltaX;
+                            raw.box_pixels[3] += deltaX;
                         }
                     });
                 }
@@ -1095,8 +1095,8 @@
 
                 div.className = `ocr-box ${cssClass} ${idx === selectedBlockIndex ? 'selected' : ''} ${isManual ? 'manual' : 'ai'}`;
                 
-                const y = block.box_2d[0]/10; const x = block.box_2d[1]/10;
-                const h = (block.box_2d[2]-block.box_2d[0])/10; const w = (block.box_2d[3]-block.box_2d[1])/10;
+                const y = block.box_pixels[0]/10; const x = block.box_pixels[1]/10;
+                const h = (block.box_pixels[2]-block.box_pixels[0])/10; const w = (block.box_pixels[3]-block.box_pixels[1])/10;
                 div.style.top = `${y}%`; div.style.left = `${x}%`; div.style.width = `${w}%`; div.style.height = `${h}%`;
                 
                 if (idx === selectedBlockIndex) {
@@ -1186,8 +1186,8 @@
 
                 const base64 = offCvs.toDataURL('image/jpeg', 0.8).split(',')[1];
                 const prompt = `Identify all text blocks for RECONSTRUCTION. Return JSON Array ONLY.
-Format: [{"text": "content", "box_2d": [ymin, xmin, ymax, xmax] (0-1000 scale), "font_size": number, "color": "hex", "is_bold": boolean, "align": "left"}]
-Important: The box_2d MUST include the full background context of the text, not just the glyphs.`;
+Format: [{"text": "content", "box_pixels": [ymin, xmin, ymax, xmax] (0-1000 scale), "font_size": number, "color": "hex", "is_bold": boolean, "align": "left"}]
+Important: The box_pixels MUST include the full background context of the text, not just the glyphs.`;
 
                 const result = await callGemini(key, prompt, base64);
                 
@@ -1317,10 +1317,10 @@ Important: The box_2d MUST include the full background context of the text, not 
                     item.displayData.forEach((block) => {
                         const state = block.state !== undefined ? block.state : 1;
                         if (state === 1) { // Red box
-                            const y = (block.box_2d[0] / 1000) * tempCvs.height;
-                            const x = (block.box_2d[1] / 1000) * tempCvs.width;
-                            const h = ((block.box_2d[2] - block.box_2d[0]) / 1000) * tempCvs.height;
-                            const w = ((block.box_2d[3] - block.box_2d[1]) / 1000) * tempCvs.width;
+                            const y = (block.box_pixels[0] / 1000) * tempCvs.height;
+                            const x = (block.box_pixels[1] / 1000) * tempCvs.width;
+                            const h = ((block.box_pixels[2] - block.box_pixels[0]) / 1000) * tempCvs.height;
+                            const w = ((block.box_pixels[3] - block.box_pixels[1]) / 1000) * tempCvs.width;
                             
                             // Sample background color locally
                             const boxX = x;
@@ -1352,7 +1352,7 @@ Important: The box_2d MUST include the full background context of the text, not 
                 The provided image has the main text content masked out. 
                 Identify ALL remaining visible non-background elements (text parts, noise, debris).
                 Return JSON Array ONLY:
-                [{"text": "", "box_2d": [ymin, xmin, ymax, xmax] (0-1000 scale)}]
+                [{"text": "", "box_pixels": [ymin, xmin, ymax, xmax] (0-1000 scale)}]
                 `;
 
                 const result = await callGemini(key, prompt, base64);
@@ -1433,10 +1433,10 @@ Important: The box_2d MUST include the full background context of the text, not 
                         item.displayData.forEach((block) => {
                             const state = block.state !== undefined ? block.state : 1;
                             if (state === 1) { 
-                                const y = (block.box_2d[0] / 1000) * tempCanvas.height;
-                                const x = (block.box_2d[1] / 1000) * tempCanvas.width;
-                                const h = ((block.box_2d[2] - block.box_2d[0]) / 1000) * tempCanvas.height;
-                                const w = ((block.box_2d[3] - block.box_2d[1]) / 1000) * tempCanvas.width;
+                                const y = (block.box_pixels[0] / 1000) * tempCanvas.height;
+                                const x = (block.box_pixels[1] / 1000) * tempCanvas.width;
+                                const h = ((block.box_pixels[2] - block.box_pixels[0]) / 1000) * tempCanvas.height;
+                                const w = ((block.box_pixels[3] - block.box_pixels[1]) / 1000) * tempCanvas.width;
                                 
                                 const expFactor = maskExpansion - 1.0; 
                                 let paddingH = 0;
@@ -1490,10 +1490,10 @@ Important: The box_2d MUST include the full background context of the text, not 
                             const state = block.state !== undefined ? block.state : 1;
                             // Skip noise blocks (empty text)
                             if ((state === 1 || state === 2) && block.text && block.text.trim() !== "") {
-                                const relX = block.box_2d[1] / 1000;
-                                const relY = block.box_2d[0] / 1000;
-                                const relW = (block.box_2d[3] - block.box_2d[1]) / 1000;
-                                const relH = (block.box_2d[2] - block.box_2d[0]) / 1000;
+                                const relX = block.box_pixels[1] / 1000;
+                                const relY = block.box_pixels[0] / 1000;
+                                const relW = (block.box_pixels[3] - block.box_pixels[1]) / 1000;
+                                const relH = (block.box_pixels[2] - block.box_pixels[0]) / 1000;
 
                                 const pptX = finalX + (relX * finalW);
                                 const pptY = finalY + (relY * finalH);
