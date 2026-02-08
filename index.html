@@ -2,1545 +2,305 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <!-- 1. Viewport 設定優化：允許縮放，適配各種設備 -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes, viewport-fit=cover">
-    <title>NotebookLM 轉 PPT (V37.29 響應式適配版)</title>
-    
-    <link rel="manifest" href="manifest.json">
-    <script>
-      const APP_VERSION = 'V37.29';
-
-      // Service Worker 安全註冊邏輯
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
-            try {
-                navigator.serviceWorker.register('sw.js').then(reg => {
-                    reg.update(); 
-                    reg.onupdatefound = () => {
-                        const installingWorker = reg.installing;
-                        if (installingWorker == null) return;
-                        installingWorker.onstatechange = () => {
-                            if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                showUpdatePrompt();
-                            }
-                        };
-                    };
-                }).catch(err => console.log('SW Skip (Not supported in this env):', err));
-            } catch (e) {
-                console.log('SW Registration skipped due to environment restriction.');
-            }
-        });
-      }
-
-      function showUpdatePrompt() {
-          const div = document.createElement('div');
-          div.style.cssText = "position:fixed; bottom:20px; left:50%; transform:translateX(-50%); background:#333; color:white; padding:15px 25px; border-radius:30px; box-shadow:0 4px 12px rgba(0,0,0,0.3); z-index:9999; display:flex; align-items:center; gap:15px; font-size:14px; font-weight:bold;";
-          div.innerHTML = `<span>🚀 檢測到新版本！</span><button onclick="forceUpdate()" style="background:#2563eb; color:white; border:none; padding:5px 15px; border-radius:20px; font-weight:bold;">立即更新</button>`;
-          document.body.appendChild(div);
-      }
-
-      async function forceUpdate() {
-          if ('serviceWorker' in navigator) {
-              try {
-                  const registrations = await navigator.serviceWorker.getRegistrations();
-                  for (const registration of registrations) { await registration.unregister(); }
-              } catch (e) {
-                  console.warn("SW cleanup skipped:", e);
-              }
-          }
-          if ('caches' in window) {
-              try {
-                  const keys = await caches.keys();
-                  await Promise.all(keys.map(key => caches.delete(key)));
-              } catch (e) {
-                  console.warn("Cache cleanup skipped:", e);
-              }
-          }
-          window.location.reload(true);
-      }
-
-      setInterval(() => {
-          if ('serviceWorker' in navigator) { 
-              try {
-                  if (navigator.serviceWorker.controller) {
-                      navigator.serviceWorker.ready.then(reg => reg.update()).catch(e => console.log("SW update skip")); 
-                  }
-              } catch(e) {
-                  // 忽略環境不支援造成的錯誤
-              }
-          }
-      }, 60000);
-    </script>
-    
-    <!-- Libraries -->
+    <title>NotebookLM 轉 PPT (V37.53 最終 Noto Sans 版)</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
-    
-    <script>
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-    </script>
-
+    <script>pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';</script>
     <style>
-        body { font-family: 'Noto Sans TC', 'Microsoft JhengHei', sans-serif; background-color: #f3f4f6; height: 100vh; overflow: hidden; }
-        
-        .version-watermark {
-            position: fixed; bottom: 5px; right: 5px; font-size: 10px; color: rgba(0,0,0,0.2); pointer-events: none; z-index: 0;
-        }
-
-        /* 2. CSS 優化：確保卡片寬度適應容器 */
-        .page-card { 
-            transition: all 0.2s; 
-            border: 2px solid transparent; 
-            cursor: pointer; 
-            width: 100%; /* 確保滿版 */
-            box-sizing: border-box;
-        }
-        .page-card:hover { transform: translateY(-2px); }
+        body { font-family: 'Noto Sans TC', sans-serif; background-color: #f3f4f6; height: 100vh; overflow: hidden; }
+        .page-card { transition: all 0.2s; border: 2px solid transparent; cursor: pointer; width: 100%; box-sizing: border-box; }
         .page-card.active { border-color: #2563eb; background-color: #eff6ff; }
-        .page-card.done { border-color: #10b981; }
-
-        canvas { touch-action: none; }
-        .cursor-pipette { cursor: crosshair !important; }
-
-        .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 3px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background-color: transparent; }
-
-        input[type="range"] { -webkit-appearance: none; appearance: none; background: #cbd5e1; border-radius: 5px; outline: none; height: 6px; }
-        input[type="range"]::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #2563eb; cursor: pointer; border: 2px solid white; box-shadow: 0 1px 3px rgba(0,0,0,0.3); }
-
-        .toggle-checkbox:checked { right: 0; border-color: #68D391; }
-        .toggle-checkbox:checked + .toggle-label { background-color: #68D391; }
-
-        .ocr-box { 
-            position: absolute; z-index: 40; border-radius: 2px; font-family: 'Noto Sans TC', sans-serif; font-size: 12px; overflow: hidden; padding: 1px; line-height: 1.2; 
-            width: 100%; height: auto; /* 響應式基礎 */
-        }
-        
-        .ocr-box.manual { 
-            background-color: rgba(255, 255, 255, 0.9) !important; 
-            color: black !important; 
-            border: 1px solid #666; 
-            cursor: text; 
-            overflow: visible; 
-            white-space: normal; 
-        }
-
-        .ocr-box.ai { 
-            color: transparent; 
-            cursor: move; 
-        }
-        
-        .click-through .ocr-box { pointer-events: none !important; }
-
-        .ocr-box.selected { border: 2px solid #2563eb !important; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.3); z-index: 60; }
-        
-        /* Handles */
-        .resize-handle {
-            position: absolute; width: 14px; height: 14px; background-color: #2563eb; border: 2px solid white; bottom: -7px; right: -7px; cursor: se-resize; border-radius: 50%; display: none; z-index: 61; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-        }
-        .ocr-box.selected .resize-handle { display: block; }
-
-        .move-handle {
-            position: absolute; width: 24px; height: 24px; background-color: #2563eb; top: -20px; left: 50%; transform: translateX(-50%); cursor: move; border-radius: 4px; display: none; align-items: center; justify-content: center; z-index: 62; box-shadow: 0 1px 3px rgba(0,0,0,0.3);
-        }
-        .move-handle::after { content: '+'; color: white; font-size: 18px; font-weight: bold; line-height: 1; }
-        .ocr-box.manual.selected .move-handle { display: flex; }
-
-        /* Delete Handle - Bottom Left */
-        .delete-handle {
-            position: absolute; width: 20px; height: 20px; background-color: #ef4444; bottom: -10px; left: -10px; cursor: pointer; border-radius: 50%; display: none; align-items: center; justify-content: center; z-index: 63; border: 2px solid white; box-shadow: 0 1px 2px rgba(0,0,0,0.2);
-        }
-        .delete-handle::after { content: '×'; color: white; font-size: 14px; font-weight: bold; line-height: 1; }
-        .ocr-box.selected .delete-handle { display: flex; }
-
+        .ocr-box { position: absolute; z-index: 40; border-radius: 2px; font-family: 'Noto Sans TC', sans-serif; font-size: 12px; overflow: hidden; padding: 1px; line-height: 1.2; cursor: move; }
         .ocr-box.keep { border: 1px solid #22c55e; background-color: rgba(34, 197, 94, 0.1); }
         .ocr-box.reconstruct { border: 2px solid #ef4444; background-color: rgba(239, 68, 68, 0.15); }
-        .ocr-box.overlay { border: 1px dashed #3b82f6; background-color: rgba(59, 130, 246, 0.1); }
-
+        .ocr-box.selected { border: 2px solid #2563eb !important; box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.3); z-index: 60; }
+        .resize-handle { position: absolute; width: 14px; height: 14px; background-color: #2563eb; border: 2px solid white; bottom: -7px; right: -7px; cursor: se-resize; border-radius: 50%; display: none; z-index: 61; }
+        .ocr-box.selected .resize-handle { display: block; }
+        .move-handle { position: absolute; width: 24px; height: 24px; background-color: #2563eb; top: -20px; left: 50%; transform: translateX(-50%); cursor: move; border-radius: 4px; display: none; align-items: center; justify-content: center; z-index: 62; }
+        .move-handle::after { content: '+'; color: white; font-size: 18px; font-weight: bold; }
+        .ocr-box.selected .move-handle { display: flex; }
+        .delete-handle { position: absolute; width: 20px; height: 20px; background-color: #ef4444; bottom: -10px; left: -10px; cursor: pointer; border-radius: 50%; display: none; align-items: center; justify-content: center; z-index: 63; border: 2px solid white; }
+        .delete-handle::after { content: '×'; color: white; font-size: 14px; font-weight: bold; }
+        .ocr-box.selected .delete-handle { display: flex; }
         .loader { border: 3px solid #e5e7eb; border-top: 3px solid #2563eb; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-
-        @media (max-width: 640px) {
-            .page-card { padding: 0.5rem; }
-            .ocr-box { border-width: 1px; } 
-            #sidebar { width: 80px; } 
-            #sidebar .page-info { display: none; } 
-            /* 3. Toolbar 優化：確保在手機上可橫向滾動 */
-            #toolbar { overflow-x: auto; -webkit-overflow-scrolling: touch; max-width: 100vw; }
-        }
     </style>
 </head>
 <body class="flex flex-col text-slate-800 h-screen w-full overflow-hidden">
-
-    <!-- Header -->
-    <header class="bg-white shadow-sm z-30 p-2 sm:p-3 flex justify-between items-center shrink-0 h-14 sm:h-16 relative w-full">
-        <div class="flex items-center gap-2">
-            <div class="bg-indigo-600 text-white p-1 sm:p-1.5 rounded-lg font-bold text-lg sm:text-xl">V37.29</div>
-            <div class="flex flex-col">
-                <h1 class="text-base sm:text-lg font-bold leading-tight hidden sm:block">AI 視覺重繪版</h1>
-                <span class="text-[10px] text-slate-500 font-bold hidden sm:block">響應式適配版</span>
-            </div>
-        </div>
-        
-        <div class="flex items-center gap-2 sm:gap-3">
-            <div class="flex flex-col items-end">
-                <input type="password" id="apiKey" class="border rounded px-2 py-1 text-xs sm:text-sm w-24 sm:w-64 focus:border-indigo-500 outline-none transition" placeholder="Gemini API Key">
-            </div>
-            
-            <label class="bg-slate-800 hover:bg-slate-900 text-white px-2 sm:px-3 py-1.5 sm:py-2 rounded cursor-pointer flex items-center gap-2 text-xs sm:text-sm shadow transition">
-                <i data-lucide="folder-open" class="w-4 h-4"></i> <span class="hidden sm:inline">開啟檔案</span>
-                <input type="file" id="fileInput" accept=".pdf,.pptx" class="hidden">
-            </label>
-            
-            <button onclick="forceUpdate()" class="bg-red-50 hover:bg-red-100 text-red-600 px-2 sm:px-3 py-1.5 sm:py-2 rounded flex items-center gap-2 text-xs sm:text-sm shadow transition border border-red-200" title="強制重整">
-                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-            </button>
-            
-            <button id="downloadBtn" onclick="exportPPT()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-2 sm:px-3 py-1.5 sm:py-2 rounded flex items-center gap-2 text-xs sm:text-sm shadow disabled:opacity-50 disabled:cursor-not-allowed transition" disabled>
-                <i data-lucide="download" class="w-4 h-4"></i> <span class="hidden sm:inline">下載</span>
-            </button>
+    <header class="bg-white shadow-sm z-30 p-2 sm:p-3 flex justify-between items-center h-16 relative w-full">
+        <div class="flex items-center gap-2"><div class="bg-indigo-600 text-white p-1.5 rounded-lg font-bold text-xl">V37.53</div><h1 class="font-bold">AI 全局擬合 Noto Sans 版</h1></div>
+        <div class="flex items-center gap-3">
+            <input type="password" id="apiKey" class="border rounded px-2 py-1 text-sm w-64" placeholder="Google Vision API Key">
+            <label class="bg-slate-800 text-white px-3 py-2 rounded cursor-pointer text-sm shadow">開啟檔案<input type="file" id="fileInput" accept=".pdf" class="hidden"></label>
+            <button id="downloadBtn" onclick="exportPPT()" class="bg-emerald-600 text-white px-3 py-2 rounded text-sm shadow disabled:opacity-50" disabled>下載 PPT</button>
         </div>
     </header>
 
-    <!-- Main -->
-    <div class="flex flex-1 overflow-hidden relative w-full">
-        
-        <!-- Left Sidebar -->
-        <div id="sidebar" class="w-20 sm:w-64 bg-white border-r flex flex-col shrink-0 z-20 shadow-sm transition-all duration-300">
-            <div class="p-2 sm:p-3 border-b bg-slate-50 flex justify-between items-center flex-wrap gap-1">
-                <span id="pageCount" class="font-bold text-slate-600 text-[10px] sm:text-xs">等待檔案...</span>
-                <button id="autoRunBtn" onclick="startAutoRun()" class="hidden text-indigo-600 text-[10px] sm:text-xs font-bold hover:underline">
-                    全部分析
-                </button>
-            </div>
-            <div id="pagesList" class="flex-1 overflow-y-auto p-2 sm:p-3 space-y-2 sm:space-y-3 bg-slate-50 custom-scrollbar">
-                <div class="text-center text-slate-400 text-xs mt-10">
-                    <i data-lucide="file-up" class="w-6 h-6 sm:w-8 sm:h-8 mx-auto mb-2 opacity-50"></i>
-                    <span class="hidden sm:inline">請上傳 PDF 或 PPTX</span>
+    <div class="flex flex-1 overflow-hidden">
+        <div id="sidebar" class="w-64 bg-white border-r flex flex-col shrink-0 z-20"><div id="pagesList" class="flex-1 overflow-y-auto p-3 bg-slate-50 custom-scrollbar"></div></div>
+        <div class="flex-1 bg-slate-100 relative flex flex-col h-full overflow-hidden">
+            <div id="toolbar" class="hidden bg-white p-2 shadow-sm border-b flex items-center gap-4 overflow-x-auto whitespace-nowrap">
+                <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border">
+                    <button onclick="setMode('select')" id="btn-mode-select" class="px-3 py-1.5 rounded bg-white shadow text-indigo-700"><i data-lucide="mouse-pointer-2" class="w-4 h-4"></i></button>
+                    <button onclick="setMode('brush')" id="btn-mode-brush" class="px-3 py-1.5 rounded text-slate-500"><i data-lucide="brush" class="w-4 h-4"></i></button>
                 </div>
-            </div>
-        </div>
-
-        <!-- Right Editor -->
-        <div class="flex-1 bg-slate-100 relative flex flex-col h-full overflow-hidden min-w-0">
-            
-            <!-- Toolbar -->
-            <div id="toolbar" class="hidden bg-white p-2 shadow-sm border-b flex items-center gap-2 sm:gap-4 shrink-0 z-20 overflow-x-auto custom-scrollbar w-full whitespace-nowrap">
-                
-                <div class="flex items-center gap-2 shrink-0">
-                      <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
-                        <button onclick="changeZoom(-0.2)" class="p-1.5 rounded hover:bg-white transition text-slate-600"><i data-lucide="minus" class="w-4 h-4"></i></button>
-                        <span id="zoomLabel" class="text-xs font-bold w-8 sm:w-10 text-center select-none">100%</span>
-                        <button onclick="changeZoom(0.2)" class="p-1.5 rounded hover:bg-white transition text-slate-600"><i data-lucide="plus" class="w-4 h-4"></i></button>
-                    </div>
-
-                    <div class="flex items-center gap-1 bg-slate-100 p-1 rounded-lg border border-slate-200">
-                        <button onclick="setMode('select')" id="btn-mode-select" class="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition bg-white shadow text-indigo-700" title="選取">
-                            <i data-lucide="mouse-pointer-2" class="w-4 h-4"></i>
-                        </button>
-                        <button onclick="setMode('brush')" id="btn-mode-brush" class="px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition text-slate-500 hover:text-slate-700" title="塗鴉">
-                            <i data-lucide="brush" class="w-4 h-4"></i>
-                        </button>
-                    </div>
-                    
-                    <label class="flex items-center gap-2 cursor-pointer bg-slate-50 border px-2 py-1.5 rounded-lg hover:bg-slate-100 transition select-none ml-2" title="自動合併">
-                        <input type="checkbox" id="mergeToggle" class="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4" onchange="toggleMerge()" checked>
-                        <span class="text-xs font-bold text-slate-700 hidden sm:inline"><i data-lucide="merge" class="w-3 h-3 inline mr-1"></i>合併</span>
-                        <span class="text-xs font-bold text-slate-700 sm:hidden"><i data-lucide="merge" class="w-3 h-3"></i></span>
-                    </label>
-
-                      <label class="flex items-center gap-2 cursor-pointer bg-slate-50 border px-2 py-1.5 rounded-lg hover:bg-slate-100 transition select-none ml-2" title="移除浮水印">
-                        <input type="checkbox" id="watermarkToggle" class="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4" onchange="toggleWatermark()" checked>
-                        <span class="text-xs font-bold text-slate-700 hidden sm:inline"><i data-lucide="eraser" class="w-3 h-3 inline mr-1"></i>去浮水印</span>
-                        <span class="text-xs font-bold text-slate-700 sm:hidden"><i data-lucide="eraser" class="w-3 h-3"></i></span>
-                    </label>
-                </div>
-
-                <div class="flex items-center gap-2 sm:gap-3 shrink-0">
-                    <button onclick="analyzeCurrentPage()" class="bg-indigo-50 text-indigo-700 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-indigo-100 transition border border-indigo-200 shadow-sm whitespace-nowrap">
-                        <i data-lucide="scan-eye" class="w-4 h-4"></i> <span class="hidden sm:inline">AI 辨識</span>
-                    </button>
-
-                    <button onclick="smartRefinePage()" class="bg-purple-50 text-purple-700 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-purple-100 transition border border-purple-200 shadow-sm whitespace-nowrap" title="去噪校正">
-                        <i data-lucide="sparkles" class="w-4 h-4"></i> <span class="hidden sm:inline">去噪校正</span>
-                    </button>
-
-                    <button onclick="addTextBox()" class="bg-emerald-50 text-emerald-700 px-2 sm:px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-emerald-100 transition border border-emerald-200 shadow-sm whitespace-nowrap" title="手動新增">
-                        <i data-lucide="plus-square" class="w-4 h-4"></i> <span class="hidden sm:inline">新增框</span>
-                    </button>
-
-                    <div class="flex items-center gap-2 border-l pl-2 sm:pl-3 bg-slate-50 p-1 rounded-lg border border-slate-200">
-                        <button id="eyedropperBtn" onclick="toggleEyedropper()" class="p-1.5 border rounded bg-white hover:bg-slate-100 text-slate-600 transition shadow-sm" title="吸管">
-                            <i data-lucide="pipette" class="w-4 h-4"></i>
-                        </button>
-                        <div class="relative w-8 h-8 rounded border overflow-hidden shadow-sm cursor-pointer hover:scale-105 transition">
-                             <input type="color" id="maskColor" value="#FFFFFF" class="absolute -top-2 -left-2 w-16 h-16 p-0 border-0 cursor-pointer">
-                        </div>
-                        
-                        <div class="w-px h-4 bg-slate-300 mx-1"></div>
-                        
-                        <div class="flex flex-col justify-center px-1">
-                             <span class="text-[9px] text-slate-400 font-bold mb-0.5 whitespace-nowrap">字體</span>
-                             <input type="range" id="fontScale" min="0.5" max="1.5" step="0.1" value="1.0" class="w-16 sm:w-20" oninput="document.getElementById('fontScaleVal').textContent=this.value">
-                        </div>
-
-                        <div class="flex flex-col justify-center px-1 border-l pl-2 ml-1">
-                             <span class="text-[9px] text-red-400 font-bold mb-0.5 whitespace-nowrap">遮罩</span>
-                             <input type="range" id="maskExpansion" min="1.0" max="1.5" step="0.05" value="1.0" class="w-16 sm:w-20" oninput="document.getElementById('maskExpVal').textContent=this.value">
-                        </div>
-
-                        <div class="w-px h-4 bg-slate-300 mx-1"></div>
-
-                        <button onclick="undoLastStroke()" class="text-slate-500 hover:text-indigo-600 p-1.5 transition border rounded bg-white shadow-sm">
-                            <i data-lucide="undo-2" class="w-4 h-4"></i>
-                        </button>
-                        <button onclick="clearMask()" class="text-slate-400 hover:text-red-500 p-1.5 transition">
-                            <i data-lucide="trash-2" class="w-4 h-4"></i>
-                        </button>
-                    </div>
-                </div>
+                <label class="flex items-center gap-2 text-xs font-bold"><input type="checkbox" id="mergeToggle" onchange="toggleMerge()" checked>合併</label>
+                <button onclick="analyzeCurrentPage()" class="bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg text-xs font-bold border border-indigo-200">GCV 辨識</button>
+                <button onclick="addTextBox()" class="bg-emerald-50 text-emerald-700 px-3 py-1.5 rounded-lg text-xs font-bold border border-emerald-200">新增框</button>
+                <button id="eyedropperBtn" onclick="toggleEyedropper()" class="p-1.5 border rounded bg-white"><i data-lucide="pipette" class="w-4 h-4"></i></button>
+                <input type="color" id="maskColor" value="#FFFFFF" class="w-8 h-8 rounded border p-0">
+                <div class="flex flex-col border-l pl-2"><span class="text-[9px] font-bold">微調</span><input type="range" id="fontScale" min="0.5" max="1.5" step="0.01" value="1.0" class="w-16"></div>
+                <button onclick="undoLastStroke()" class="p-1.5 border rounded bg-white"><i data-lucide="undo-2" class="w-4 h-4"></i></button>
+                <button onclick="clearMask()" class="text-red-400 p-1.5"><i data-lucide="trash-2" class="w-4 h-4"></i></button>
             </div>
 
-            <!-- Preview Area -->
-            <div id="previewArea" class="flex-1 overflow-auto bg-slate-200 relative hidden p-2 sm:p-8 custom-scrollbar flex flex-col items-center w-full">
-                <div id="canvasContainer" class="relative shadow-2xl bg-white hidden flex-shrink-0 m-auto" style="width: 0; height: 0;">
+            <div id="previewArea" class="flex-1 overflow-auto bg-slate-200 relative p-8 flex flex-col items-center">
+                <div id="canvasContainer" class="relative shadow-2xl bg-white hidden m-auto">
                     <canvas id="pdfCanvas" class="absolute top-0 left-0 w-full h-full z-10"></canvas>
                     <canvas id="maskCanvas" class="absolute top-0 left-0 w-full h-full z-20 cursor-crosshair touch-none"></canvas>
-                    <div id="textOverlay" class="absolute top-0 left-0 w-full h-full z-30 pointer-events-none"></div>
-
+                    <div id="textOverlay" class="absolute top-0 left-0 w-full h-full z-30"></div>
                     <div id="canvasLoader" class="absolute inset-0 bg-white/90 z-50 hidden flex flex-col items-center justify-center backdrop-blur-sm">
-                        <div class="loader mb-3"></div>
-                        <span class="text-sm font-bold text-slate-600 animate-pulse" id="loaderText">AI 視覺運算中...</span>
+                        <div class="loader mb-3"></div><span class="text-sm font-bold text-slate-600">全局擬合 Noto Sans 優化中...</span>
                     </div>
                 </div>
             </div>
-
-            <div id="emptyState" class="flex-1 flex flex-col items-center justify-center text-slate-400">
-                <i data-lucide="image-plus" class="w-12 h-12 sm:w-16 sm:h-16 mb-4 opacity-20"></i>
-                <p class="text-xs sm:text-sm font-bold opacity-60">請先上傳檔案</p>
-            </div>
-            
-            <div class="bg-white border-t p-2 px-4 flex justify-between items-center text-[10px] sm:text-xs text-slate-500 shrink-0 z-20 overflow-x-auto w-full">
-                <div id="statusText" class="whitespace-nowrap mr-2">等待操作</div>
-                <div class="font-bold flex gap-2 sm:gap-3 text-[10px] sm:text-xs whitespace-nowrap">
-                    <span class="text-green-600">🟩 保留</span>
-                    <span class="text-gray-300">|</span>
-                    <span class="text-red-500">🟥 重建</span>
-                    <span class="text-blue-500">🟦 疊加</span>
-                    <span class="text-slate-500">🖱️ 編輯</span>
-                </div>
-            </div>
         </div>
-        <div class="version-watermark">V37.29</div>
     </div>
 
     <script>
         if (typeof lucide !== 'undefined') lucide.createIcons();
+        let pdfDoc = null, pagesData = [], currentIndex = -1, editMode = 'select', isDrawing = false, isEyedropper = false;
+        let selectedBlockIndex = -1, dragAction = null, dragStart = { x: 0, y: 0 }, activeBlockData = null;
 
-        // --- State ---
-        let currentFileMode = 'pdf'; 
-        let pdfDoc = null;
-        let pptxSlides = [];
-        let pagesData = [];
-        let currentIndex = -1;
-        let editMode = 'select'; 
-        let isDrawing = false;
-        let isEyedropper = false;
-        let zoomLevel = 1.0; 
-        let isWatermarkEnabled = true; // Default enable watermark removal
-        
-        let selectedBlockIndex = -1;
-        let dragAction = null; 
-        let dragStart = { x: 0, y: 0 };
-        let activeBlockData = null; 
-        
-        // --- DOM ---
-        const apiKeyInput = document.getElementById('apiKey');
-        const fileInput = document.getElementById('fileInput');
-        const pagesList = document.getElementById('pagesList');
-        const previewArea = document.getElementById('previewArea');
-        const canvasContainer = document.getElementById('canvasContainer');
-        const textOverlay = document.getElementById('textOverlay');
-        const emptyState = document.getElementById('emptyState');
-        const toolbar = document.getElementById('toolbar');
-        const statusTextEl = document.getElementById('statusText'); 
-        
-        const pdfCanvas = document.getElementById('pdfCanvas');
-        const maskCanvas = document.getElementById('maskCanvas');
-        const maskCtx = maskCanvas.getContext('2d');
-        const canvasLoader = document.getElementById('canvasLoader');
-        const loaderText = document.getElementById('loaderText');
-        const zoomLabel = document.getElementById('zoomLabel');
-        
-        const maskColorInput = document.getElementById('maskColor');
-        const eyedropperBtn = document.getElementById('eyedropperBtn');
-        const btnModeSelect = document.getElementById('btn-mode-select');
-        const btnModeBrush = document.getElementById('btn-mode-brush');
-        const mergeToggle = document.getElementById('mergeToggle');
-        const watermarkToggle = document.getElementById('watermarkToggle');
-        const fontScaleInput = document.getElementById('fontScale');
-        const maskExpansionInput = document.getElementById('maskExpansion');
+        const pdfCanvas = document.getElementById('pdfCanvas'), maskCanvas = document.getElementById('maskCanvas'), maskCtx = maskCanvas.getContext('2d');
+        const canvasContainer = document.getElementById('canvasContainer'), textOverlay = document.getElementById('textOverlay');
+        const apiKeyInput = document.getElementById('apiKey'), canvasLoader = document.getElementById('canvasLoader'), maskColorInput = document.getElementById('maskColor');
 
-        // --- 4. 監聽 Resize 事件，動態調整畫布 ---
-        window.addEventListener('resize', () => {
-            if (currentIndex !== -1) {
-                renderPageWithZoom(pagesData[currentIndex]);
-            }
-        });
+        // --- V37.53 核心：針對 Noto Sans 優化的幾何擬合演算法 ---
+        function calculateGlobalFitFS(block, text, fontScale) {
+            const hPct = (block.box_pixels[2] - block.box_pixels[0]) / 1000;
+            const wPct = (block.box_pixels[3] - block.box_pixels[1]) / 1000;
+            const boxH_pt = hPct * 5.625 * 72;
+            const boxW_pt = wPct * 10 * 72;
+            
+            const cjkCount = (text.match(/[\u4e00-\u9fa5]/g) || []).length;
+            const otherCount = text.length - cjkCount;
+            // 針對 Noto Sans 調整寬度權重因子 (0.51)
+            const widthWeight = 0.51; 
+            const lineSpacing = 0.18; 
 
-        // --- File Handling ---
-        fileInput.onchange = async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            const ext = file.name.split('.').pop().toLowerCase();
+            let possibleFS = [];
 
-            document.getElementById('pageCount').textContent = '讀取中...';
-            pagesList.innerHTML = '';
-            pagesData = [];
-            currentIndex = -1;
-            selectedBlockIndex = -1;
-            emptyState.classList.remove('hidden');
-            previewArea.classList.add('hidden');
-            toolbar.classList.add('hidden');
-
-            try {
-                if (ext === 'pdf') {
-                    currentFileMode = 'pdf';
-                    await handlePDF(file);
-                } else if (ext === 'pptx') {
-                    currentFileMode = 'pptx';
-                    await handlePPTX(file);
-                } else {
-                    alert('不支援的格式');
+            // 標題判定校準
+            if (text.length < 15 && boxW_pt > boxH_pt * 4) {
+                for (let scale = 1.15; scale >= 0.9; scale -= 0.05) {
+                    let trialFS = boxH_pt * scale;
+                    let estW = (cjkCount * 1.0 + otherCount * widthWeight) * trialFS;
+                    if (estW <= boxW_pt * 1.2) return Math.max(8, Math.min(trialFS * fontScale, 200));
                 }
-            } catch (err) {
-                console.error(err);
-                alert('檔案讀取失敗: ' + err.message);
             }
-        };
 
-        async function handlePDF(file) {
+            // 內文判定校準
+            for (let n = 1; n <= 8; n++) {
+                let trialFS = boxH_pt / (n + (n - 1) * lineSpacing);
+                let estW_per_line = ((cjkCount * 1.0 + otherCount * widthWeight) * trialFS) / n;
+                if (estW_per_line <= boxW_pt * 1.35) {
+                    possibleFS.push(trialFS);
+                }
+            }
+
+            if (possibleFS.length > 0) {
+                return Math.max(8, Math.min(Math.max(...possibleFS) * fontScale, 200));
+            }
+            return (boxH_pt / 5) * fontScale; 
+        }
+
+        function detectSmartFitColor(ctx, box, cvsW, cvsH, mode) {
+            const x = (box[1]/1000)*cvsW, y = (box[0]/1000)*cvsH;
+            const w = ((box[3]-box[1])/1000)*cvsW, h = ((box[2]-box[0])/1000)*cvsH;
+            if (mode === 'bg') {
+                const pts = [[x-8, y-8], [x+w+8, y-8], [x-8, y+h+8], [x+w+8, y+h+8], [x+w/2, y-8]];
+                let r=0, g=0, b=0;
+                pts.forEach(p => {
+                    const d = ctx.getImageData(Math.max(0, Math.floor(p[0])), Math.max(0, Math.floor(p[1])), 1, 1).data;
+                    r+=d[0]; g+=d[1]; b+=d[2];
+                });
+                return `rgb(${Math.floor(r/5)},${Math.floor(g/5)},${Math.floor(b/5)})`;
+            } else {
+                let minLum = 255, darkColor = {r:0,g:0,b:0};
+                for(let i=1; i<=10; i++) {
+                    const d = ctx.getImageData(Math.max(0, Math.floor(x + w*(i/11))), Math.floor(y + h/2), 1, 1).data;
+                    const lum = (d[0]+d[1]+d[2])/3;
+                    if (lum < minLum) { minLum = lum; darkColor = {r:d[0], g:d[1], b:d[2]}; }
+                }
+                if (minLum > 150) return "#000000"; 
+                return "#" + [darkColor.r, darkColor.g, darkColor.b].map(v => v.toString(16).padStart(2, '0')).join('');
+            }
+        }
+
+        document.getElementById('fileInput').onchange = async (e) => {
+            const file = e.target.files[0]; if (!file) return;
             const buffer = await file.arrayBuffer();
             pdfDoc = await pdfjsLib.getDocument(new Uint8Array(buffer)).promise;
-            document.getElementById('pageCount').textContent = `PDF 共 ${pdfDoc.numPages} 頁`;
-            document.getElementById('autoRunBtn').classList.remove('hidden');
-            
-            for (let i = 1; i <= pdfDoc.numPages; i++) {
-                pagesData.push({
-                    pageNum: i,
-                    type: 'pdf',
-                    rawData: null, 
-                    displayData: null,
-                    strokes: [],
-                    viewport: null,
-                    thumbUrl: null
-                });
-            }
+            pagesData = Array.from({ length: pdfDoc.numPages }, (_, i) => ({ pageNum: i + 1, strokes: [], rawData: null, displayData: null, viewport: null, el: null }));
             renderThumbnails();
-        }
-
-        async function handlePPTX(file) {
-            const zip = new JSZip();
-            await zip.loadAsync(file);
-            const mediaFolder = zip.folder("ppt/media");
-            const imgFiles = [];
-            if (mediaFolder) {
-                mediaFolder.forEach((relativePath, file) => {
-                    if (relativePath.match(/\.(jpg|jpeg|png)$/i)) {
-                        imgFiles.push({ path: relativePath, file: file });
-                    }
-                });
-            }
-            imgFiles.sort((a, b) => {
-                const numA = parseInt(a.path.match(/\d+/)?.[0] || 0);
-                const numB = parseInt(b.path.match(/\d+/)?.[0] || 0);
-                return numA - numB;
-            });
-            if (imgFiles.length === 0) throw new Error("此 PPTX 中未發現圖片");
-            document.getElementById('pageCount').textContent = `PPTX 圖片: ${imgFiles.length} 張`;
-            document.getElementById('autoRunBtn').classList.remove('hidden');
-            pptxSlides = [];
-            for (let i = 0; i < imgFiles.length; i++) {
-                const blob = await imgFiles[i].file.async("blob");
-                const url = URL.createObjectURL(blob);
-                pptxSlides.push(url);
-                pagesData.push({
-                    pageNum: i + 1,
-                    type: 'pptx',
-                    imgUrl: url,
-                    rawData: null,
-                    displayData: null,
-                    strokes: [],
-                    viewport: null,
-                    thumbUrl: null
-                });
-            }
-            renderThumbnails();
-        }
+        };
 
         async function renderThumbnails() {
-            pagesList.innerHTML = '';
+            const list = document.getElementById('pagesList'); list.innerHTML = '';
             for (let i = 0; i < pagesData.length; i++) {
-                const item = pagesData[i];
+                const page = await pdfDoc.getPage(pagesData[i].pageNum);
+                const vp = page.getViewport({ scale: 0.15 });
+                const cvs = document.createElement('canvas'); cvs.width = vp.width; cvs.height = vp.height;
+                await page.render({ canvasContext: cvs.getContext('2d'), viewport: vp }).promise;
                 const div = document.createElement('div');
-                div.className = 'page-card bg-white p-2 rounded-lg shadow-sm border border-slate-200 flex items-center gap-3 hover:bg-blue-50';
-                
-                let thumbSrc = '';
-                try {
-                    if (item.type === 'pdf') {
-                        const page = await pdfDoc.getPage(item.pageNum);
-                        const vp = page.getViewport({ scale: 0.15 });
-                        const cvs = document.createElement('canvas');
-                        cvs.width = vp.width; cvs.height = vp.height;
-                        await page.render({ canvasContext: cvs.getContext('2d'), viewport: vp }).promise;
-                        thumbSrc = cvs.toDataURL();
-                        item.viewport = page.getViewport({ scale: 1.0 });
-                    } else {
-                        thumbSrc = item.imgUrl;
-                        const img = new Image();
-                        img.src = item.imgUrl;
-                        await img.decode();
-                        item.viewport = { width: img.naturalWidth, height: img.naturalHeight };
-                    }
-                } catch(e) { console.error("Thumb error", e); continue; }
-
-                item.thumbUrl = thumbSrc;
-                div.innerHTML = `
-                    <div class="font-bold text-slate-400 text-xs w-6">${i+1}</div>
-                    <img src="${thumbSrc}" class="h-10 w-auto sm:h-12 border border-slate-200 rounded object-contain bg-white">
-                    <div class="flex-1 text-right page-info">
-                        <div class="status-badge text-[10px] bg-slate-100 text-slate-500 px-2 py-1 rounded-full inline-block">未分析</div>
-                    </div>
-                `;
-                div.onclick = () => loadPage(i);
-                item.el = div;
-                pagesList.appendChild(div);
+                div.className = 'page-card bg-white p-2 rounded border mb-2 shadow-sm'; div.innerHTML = `<img src="${cvs.toDataURL()}" class="w-full border rounded">`;
+                div.onclick = () => loadPage(i); pagesData[i].el = div; pagesData[i].viewport = page.getViewport({ scale: 1.0 });
+                list.appendChild(div);
             }
         }
 
-        // --- Editor Logic ---
         async function loadPage(index) {
-            currentIndex = index;
-            selectedBlockIndex = -1;
-            const item = pagesData[index];
-            document.querySelectorAll('.page-card').forEach(c => c.classList.remove('active'));
-            item.el.classList.add('active');
-            emptyState.classList.add('hidden');
-            previewArea.classList.remove('hidden');
-            toolbar.classList.remove('hidden');
-            renderPageWithZoom(item);
+            currentIndex = index; const item = pagesData[index];
+            document.querySelectorAll('.page-card').forEach(c => c.classList.remove('active')); item.el.classList.add('active');
+            document.getElementById('toolbar').classList.remove('hidden'); canvasContainer.classList.remove('hidden');
+            const ratio = item.viewport.width / item.viewport.height;
+            let finalW = window.innerWidth * 0.7; canvasContainer.style.width = `${finalW}px`; canvasContainer.style.height = `${finalW / ratio}px`;
+            pdfCanvas.width = item.viewport.width * 2; pdfCanvas.height = item.viewport.height * 2;
+            maskCanvas.width = pdfCanvas.width; maskCanvas.height = pdfCanvas.height;
+            const page = await pdfDoc.getPage(item.pageNum);
+            await page.render({ canvasContext: pdfCanvas.getContext('2d', { willReadFrequently: true }), viewport: page.getViewport({ scale: 2.0 }) }).promise;
+            if (item.rawData) processData(item); 
+            renderTextOverlay(item); redrawStrokes(item);
         }
 
-        // --- 3. 響應式 Canvas 渲染邏輯 ---
-        async function renderPageWithZoom(item) {
+        async function analyzeCurrentPage() {
+            const key = apiKeyInput.value.trim(); if (!key) return alert('請輸入 Key');
+            canvasLoader.classList.remove('hidden');
             try {
-                if(!item.viewport) return; 
-
-                // 根據螢幕寬度決定畫布的縮放基準
-                const screenW = window.innerWidth;
-                const screenH = window.innerHeight;
-                const isMobile = screenW < 768; // 平板以下視為 Mobile
-
-                // Mobile: 95% 寬度，高度較自由
-                // Desktop: 75% 寬度，高度限制 85%
-                const baseW = isMobile ? screenW * 0.95 : screenW * 0.75;
-                const baseH = isMobile ? screenH * 0.7 : screenH * 0.85;
-                
-                const ratio = item.viewport.width / item.viewport.height;
-                let finalW, finalH;
-                
-                // 計算最適合的尺寸 (Contain 模式)
-                if (baseW / baseH > ratio) {
-                      finalH = baseH * zoomLevel; 
-                      finalW = finalH * ratio;
-                } else {
-                      finalW = baseW * zoomLevel; 
-                      finalH = finalW / ratio;
-                }
-
-                canvasContainer.style.width = `${finalW}px`;
-                canvasContainer.style.height = `${finalH}px`;
-                canvasContainer.classList.remove('hidden');
-
-                const scale = 2.0 * zoomLevel; // 高解析度渲染
-                pdfCanvas.width = item.viewport.width * scale; 
-                pdfCanvas.height = item.viewport.height * scale;
-                maskCanvas.width = pdfCanvas.width;
-                maskCanvas.height = pdfCanvas.height;
-
-                const ctx = pdfCanvas.getContext('2d');
-                ctx.clearRect(0, 0, pdfCanvas.width, pdfCanvas.height);
-
-                if (item.type === 'pdf') {
-                    const page = await pdfDoc.getPage(item.pageNum);
-                    await page.render({ 
-                        canvasContext: ctx, 
-                        viewport: page.getViewport({ scale: scale * (item.viewport.width / page.getViewport({scale:1}).width) }) 
-                    }).promise;
-                } else {
-                    const img = new Image();
-                    img.src = item.imgUrl;
-                    await img.decode();
-                    ctx.drawImage(img, 0, 0, pdfCanvas.width, pdfCanvas.height);
-                }
-
-                if (isWatermarkEnabled) {
-                    applyWatermarkMask(ctx, pdfCanvas.width, pdfCanvas.height);
-                }
-
-                // Removed autoPickBackgroundColor() here to prevent wrong color sampling
-                // autoPickBackgroundColor(); 
-                
-                redrawStrokes(item);
-                if (item.rawData) processData(item);
-                renderTextOverlay(item);
-                updateStatus(item);
-                setMode(editMode);
-            } catch (err) {
-                console.error("Render Error:", err);
-            }
-        }
-        
-        function toggleWatermark() {
-            isWatermarkEnabled = watermarkToggle.checked;
-            if (currentIndex !== -1) {
-                renderPageWithZoom(pagesData[currentIndex]);
-            }
-        }
-
-        // --- Watermark Removal Logic ---
-        function applyWatermarkMask(ctx, width, height) {
-            const boxW = width * 0.12; 
-            // Previous was 0.04, reducing by 1/8 means keeping 7/8 (0.875)
-            const boxH = (height * 0.04) * 0.875; 
-            const boxX = width - boxW;
-            const boxY = height - boxH;
-
-            const sampleX = Math.max(0, width - 10);
-            const sampleY = Math.max(0, boxY - 10);
-            
-            try {
-                // Check if sampling is safe
-                if (sampleX < 0 || sampleY < 0) return;
-
-                const imgData = ctx.getImageData(sampleX - 5, sampleY - 5, 5, 5);
-                const data = imgData.data;
-                let r = 0, g = 0, b = 0;
-                const count = data.length / 4;
-                
-                for (let i = 0; i < data.length; i += 4) {
-                    r += data[i];
-                    g += data[i+1];
-                    b += data[i+2];
-                }
-                
-                r = Math.round(r / count);
-                g = Math.round(g / count);
-                b = Math.round(b / count);
-                
-                ctx.fillStyle = `rgb(${r},${g},${b})`;
-                ctx.fillRect(boxX, boxY, boxW, boxH);
-                
-            } catch (e) {
-                console.warn("Watermark sample failed", e);
-            }
-        }
-
-        function changeZoom(delta) {
-            zoomLevel = Math.max(0.5, Math.min(zoomLevel + delta, 3.0));
-            zoomLabel.textContent = `${Math.round(zoomLevel * 100)}%`;
-            if (currentIndex !== -1) renderPageWithZoom(pagesData[currentIndex]);
-        }
-
-        // --- Interaction Handlers ---
-        function getNormalizedPoint(e) {
-            const rect = maskCanvas.getBoundingClientRect();
-            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            return { x: (clientX - rect.left) / rect.width, y: (clientY - rect.top) / rect.height };
-        }
-
-        function startDrawing(e) {
-            if (isEyedropper) { pickColor(e); return; }
-            if (editMode !== 'brush') return;
-            isDrawing = true;
-            const pt = getNormalizedPoint(e);
-            const normSize = 25 / 1000; 
-            pagesData[currentIndex].strokes.push({ color: maskColorInput.value, normSize, points: [pt] });
-            
-            const w = maskCanvas.width; const h = maskCanvas.height;
-            maskCtx.beginPath(); maskCtx.lineCap = 'round'; maskCtx.lineJoin = 'round';
-            maskCtx.lineWidth = normSize * w; maskCtx.strokeStyle = maskColorInput.value;
-            maskCtx.moveTo(pt.x * w, pt.y * h); maskCtx.lineTo(pt.x * w, pt.y * h); maskCtx.stroke();
-        }
-
-        function draw(e) {
-            if (!isDrawing) return;
-            const pt = getNormalizedPoint(e);
-            const stroke = pagesData[currentIndex].strokes.slice(-1)[0];
-            stroke.points.push(pt);
-            
-            const w = maskCanvas.width; const h = maskCanvas.height;
-            const prev = stroke.points[stroke.points.length - 2];
-            
-            maskCtx.beginPath(); maskCtx.lineCap = 'round'; maskCtx.lineJoin = 'round';
-            maskCtx.lineWidth = stroke.normSize * w; maskCtx.strokeStyle = stroke.color;
-            maskCtx.moveTo(prev.x * w, prev.y * h); maskCtx.lineTo(pt.x * w, pt.y * h); maskCtx.stroke();
-        }
-
-        function stopDrawing() { isDrawing = false; checkAllDone(); }
-
-        function redrawStrokes(item) {
-            maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height);
-            const w = maskCanvas.width; const h = maskCanvas.height;
-            item.strokes.forEach(s => {
-                if (s.points.length < 1) return;
-                maskCtx.beginPath(); maskCtx.lineCap = 'round'; maskCtx.lineJoin = 'round';
-                maskCtx.lineWidth = s.normSize * w; maskCtx.strokeStyle = s.color;
-                maskCtx.moveTo(s.points[0].x * w, s.points[0].y * h);
-                for (let i=1; i<s.points.length; i++) maskCtx.lineTo(s.points[i].x * w, s.points[i].y * h);
-                maskCtx.stroke();
-            });
-        }
-
-        function undoLastStroke() {
-            if (currentIndex === -1) return;
-            pagesData[currentIndex].strokes.pop();
-            redrawStrokes(pagesData[currentIndex]);
-        }
-        
-        function clearMask() {
-            if (currentIndex === -1) return;
-            pagesData[currentIndex].strokes = [];
-            redrawStrokes(pagesData[currentIndex]);
-        }
-
-        function toggleEyedropper() {
-            isEyedropper = !isEyedropper;
-            eyedropperBtn.classList.toggle('bg-blue-100', isEyedropper);
-            maskCanvas.classList.toggle('cursor-pipette', isEyedropper);
-            maskCanvas.style.pointerEvents = isEyedropper ? 'auto' : (editMode === 'brush' ? 'auto' : 'none');
-            textOverlay.style.pointerEvents = isEyedropper ? 'none' : (editMode === 'select' ? 'auto' : 'none');
-        }
-
-        function pickColor(e) {
-            const rect = maskCanvas.getBoundingClientRect();
-            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            const scaleX = pdfCanvas.width / rect.width;
-            const scaleY = pdfCanvas.height / rect.height;
-            const x = (clientX - rect.left) * scaleX;
-            const y = (clientY - rect.top) * scaleY;
-            const p = pdfCanvas.getContext('2d').getImageData(x, y, 1, 1).data;
-            const hex = "#" + ((1 << 24) + (p[0] << 16) + (p[1] << 8) + p[2]).toString(16).slice(1);
-            maskColorInput.value = hex;
-            toggleEyedropper();
-        }
-
-        function setMode(mode) {
-            editMode = mode;
-            btnModeSelect.className = mode==='select' ? "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition bg-white shadow text-indigo-700" : "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition text-slate-500";
-            btnModeBrush.className = mode==='brush' ? "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition bg-white shadow text-indigo-700" : "px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1 transition text-slate-500";
-            maskCanvas.style.pointerEvents = mode === 'brush' ? 'auto' : 'none';
-            textOverlay.style.pointerEvents = mode === 'select' ? 'auto' : 'none';
-            textOverlay.classList.toggle('click-through', mode !== 'select');
-            textOverlay.style.opacity = mode === 'select' ? '1' : '0.4';
-            if (mode === 'brush') {
-                selectedBlockIndex = -1;
-                if(currentIndex !== -1) renderTextOverlay(pagesData[currentIndex]);
-            }
-        }
-
-        function uuid() {
-            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-                var r = Math.random() * 16 | 0, v = c == 'x' ? r : (r & 0.3 | 0.8);
-                return v.toString(16);
-            });
-        }
-
-        function addTextBox() {
-            if (currentIndex === -1) {
-                alert("請先上傳並選擇一個頁面");
-                return;
-            }
-            const item = pagesData[currentIndex];
-            if (!item.rawData) item.rawData = [];
-
-            const newBlock = {
-                id: uuid(),
-                text: "新增文字",
-                box_pixels: [450, 400, 500, 600], 
-                font_size: 12,
-                color: "#000000",
-                is_bold: false,
-                align: "left",
-                isManual: true,
-                state: 1 // Default to Reconstruct
-            };
-            
-            item.rawData.push(newBlock);
-            processData(item);
-            
-            selectedBlockIndex = item.displayData.length - 1;
-            renderTextOverlay(item); 
-        }
-        
-        function deleteBlock(index) {
-            const item = pagesData[currentIndex];
-            const blockToDelete = item.displayData[index];
-            if (!blockToDelete) return;
-
-            // Remove from rawData using sourceIds (if merged) or id (if single)
-            const idsToRemove = blockToDelete.sourceIds || [blockToDelete.id];
-            item.rawData = item.rawData.filter(raw => !idsToRemove.includes(raw.id));
-            
-            processData(item);
-            selectedBlockIndex = -1;
-            renderTextOverlay(item);
-            updateStatus(item);
-        }
-
-        function toggleMerge() {
-            if (currentIndex !== -1) {
-                const item = pagesData[currentIndex];
-                processData(item);
-                renderTextOverlay(item);
-            }
-        }
-
-        function processData(item) {
-            if (!item.rawData) return;
-            const shouldMerge = mergeToggle.checked;
-            
-            // Clone rawData to avoid mutating source
-            let workingData = JSON.parse(JSON.stringify(item.rawData));
-            
-            if (shouldMerge) {
-                item.displayData = mergeTextBlocks(workingData);
-            } else {
-                item.displayData = workingData;
-            }
+                const base64 = pdfCanvas.toDataURL('image/jpeg', 0.9).split(',')[1];
+                const res = await fetch(`https://vision.googleapis.com/v1/images:annotate?key=${key}`, {
+                    method: 'POST', body: JSON.stringify({ requests: [{ image: { content: base64 }, features: [{ type: "DOCUMENT_TEXT_DETECTION" }] }] })
+                });
+                const data = await res.json(), fullText = data.responses[0].fullTextAnnotation;
+                const results = [];
+                const ctx = pdfCanvas.getContext('2d', { willReadFrequently: true });
+                fullText.pages[0].blocks.forEach(block => {
+                    block.paragraphs.forEach(para => {
+                        const v = para.boundingBox.vertices;
+                        const xmin = Math.min(...v.map(p => p.x||0)) / pdfCanvas.width * 1000;
+                        const ymin = Math.min(...v.map(p => p.y||0)) / pdfCanvas.height * 1000;
+                        const xmax = Math.max(...v.map(p => p.x||0)) / pdfCanvas.width * 1000;
+                        const ymax = Math.max(...v.map(p => p.y||0)) / pdfCanvas.height * 1000;
+                        let text = ""; para.words.forEach(w => w.symbols.forEach(s => { text += s.text; if (s.property?.detectedBreak) text += " "; }));
+                        const box = [ymin, xmin, ymax, xmax];
+                        results.push({ id: 'raw_'+Date.now()+Math.random(), text: text.trim(), box_pixels: box, color: detectSmartFitColor(ctx, box, pdfCanvas.width, pdfCanvas.height, 'text'), state: 1 });
+                    });
+                });
+                pagesData[currentIndex].rawData = results; processData(pagesData[currentIndex]); renderTextOverlay(pagesData[currentIndex]);
+                document.getElementById('downloadBtn').disabled = false;
+            } catch (e) { alert('辨識失敗'); } finally { canvasLoader.classList.add('hidden'); }
         }
 
         function mergeTextBlocks(blocks) {
             if (!blocks || blocks.length === 0) return [];
-            
-            // Sort by Top, then Left
-            blocks.sort((a, b) => {
-                const yDiff = Math.abs(a.box_pixels[0] - b.box_pixels[0]);
-                if (yDiff < 15) { 
-                    return a.box_pixels[1] - b.box_pixels[1];
-                }
-                return a.box_pixels[0] - b.box_pixels[0];
-            });
-            
+            let sorted = [...blocks].sort((a, b) => (Math.abs(a.box_pixels[0] - b.box_pixels[0]) < 5) ? a.box_pixels[1] - b.box_pixels[1] : a.box_pixels[0] - b.box_pixels[0]);
             let merged = [];
-            
-            for (let i = 0; i < blocks.length; i++) {
-                let curr = blocks[i];
-                
-                // If noise block (empty text), don't merge it into text stream, just keep it as is
-                if (!curr.text || curr.text.trim() === "") {
-                    merged.push(curr);
-                    continue;
-                }
-
-                if (merged.length === 0) {
-                    // Initialize sourceIds
-                    if (!curr.sourceIds) curr.sourceIds = [curr.id];
-                    merged.push(curr);
-                    continue;
-                }
-
+            for (let curr of sorted) {
+                if (merged.length === 0) { merged.push({...curr, sourceIds: [curr.id]}); continue; }
                 let prev = merged[merged.length - 1];
-                
-                // Don't merge if previous was noise
-                if (!prev.text || prev.text.trim() === "") {
-                    if (!curr.sourceIds) curr.sourceIds = [curr.id];
-                    merged.push(curr);
-                    continue;
-                }
-
-                let fontSizeMatch = Math.abs((curr.font_size || 0) - (prev.font_size || 0)) < 3;
-                let vDist = curr.box_pixels[0] - prev.box_pixels[2]; 
-                let hOverlap = !(curr.box_pixels[1] > prev.box_pixels[3] || curr.box_pixels[3] < prev.box_pixels[1]);
-                let alignLeft = Math.abs(curr.box_pixels[1] - prev.box_pixels[1]) < 50; 
-                
-                // 水平合併條件：同高度 & 距離近
-                const vAlign = Math.abs(curr.box_pixels[0] - prev.box_pixels[0]) < 15;
-                const hDist = curr.box_pixels[1] - prev.box_pixels[3];
-                const hConnect = hDist < 60 && hDist > -20;
-
-                const vConnect = vDist < 50 && vDist > -10;
-
-                let doMerge = false;
-                if (fontSizeMatch) {
-                    if (vAlign && hConnect) doMerge = true;
-                    else if (vConnect && alignLeft) doMerge = true;
-                }
-                
-                if (doMerge) {
-                    // Merge!
-                    let sep = " ";
-                    // CJK check
-                    const prevChar = prev.text[prev.text.length - 1];
-                    const currChar = curr.text[0];
+                if (Math.abs(curr.box_pixels[0] - prev.box_pixels[0]) < 5 && (curr.box_pixels[1] - prev.box_pixels[3]) < 12) {
                     const isCJK = (c) => /[\u4e00-\u9fa5]/.test(c);
-                    if (isCJK(prevChar) && isCJK(currChar)) sep = "";
-
-                    prev.text += sep + curr.text;
-                    prev.box_pixels[0] = Math.min(prev.box_pixels[0], curr.box_pixels[0]);
-                    prev.box_pixels[1] = Math.min(prev.box_pixels[1], curr.box_pixels[1]);
-                    prev.box_pixels[2] = Math.max(prev.box_pixels[2], curr.box_pixels[2]);
+                    prev.text += (isCJK(prev.text.slice(-1)) && isCJK(curr.text[0]) ? "" : " ") + curr.text;
                     prev.box_pixels[3] = Math.max(prev.box_pixels[3], curr.box_pixels[3]);
-                    
-                    // Combine IDs
-                    if (!prev.sourceIds) prev.sourceIds = [prev.id];
-                    if (!curr.sourceIds) curr.sourceIds = [curr.id]; // Should be single usually
-                    prev.sourceIds = [...prev.sourceIds, ...curr.sourceIds];
-                    
-                    if (prev.state !== curr.state) prev.state = 1;
-
-                } else {
-                    if (!curr.sourceIds) curr.sourceIds = [curr.id];
-                    merged.push(curr);
-                }
+                    prev.sourceIds.push(curr.id);
+                } else { merged.push({...curr, sourceIds: [curr.id]}); }
             }
             return merged;
         }
 
-        // --- Interaction Logic (Fixed V37.28) ---
-        function handleOverlayMouseDown(e) {
-            if (editMode !== 'select') return;
-            const item = pagesData[currentIndex];
-            if (!item || !item.displayData) return;
-
-            // Handle Delete click (Now allowed for ALL boxes)
-            if (e.target.classList.contains('delete-handle')) {
-                // Logic handled in click event of the handle itself, but stop prop here just in case
-                e.stopPropagation();
-                return;
-            }
-
-            if (e.target.isContentEditable && e.target.classList.contains('selected')) return;
-
-            const rect = textOverlay.getBoundingClientRect();
-            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            const mouseX = clientX - rect.left;
-            const mouseY = clientY - rect.top;
-            
-            // Check Resize Handle
-            if (e.target.classList.contains('resize-handle')) {
-                dragAction = 'resize';
-                dragStart = { x: mouseX, y: mouseY };
-                activeBlockData = JSON.parse(JSON.stringify(item.displayData[selectedBlockIndex].box_pixels));
-                e.stopPropagation();
-                return;
-            }
-            
-            // Check Move Handle
-            if (e.target.classList.contains('move-handle')) {
-                dragAction = 'move';
-                dragStart = { x: mouseX, y: mouseY };
-                activeBlockData = JSON.parse(JSON.stringify(item.displayData[selectedBlockIndex].box_pixels));
-                e.stopPropagation();
-                return;
-            }
-
-            // Check Box Body
-            const targetBox = e.target.closest('.ocr-box');
-            if (targetBox) {
-                const children = Array.from(textOverlay.children);
-                const idx = children.indexOf(targetBox);
-                
-                if (idx !== -1) {
-                    const block = item.displayData[idx];
-
-                    if (idx === selectedBlockIndex) {
-                        // Already selected. Drag body to move.
-                        dragAction = 'move';
-                        dragStart = { x: mouseX, y: mouseY };
-                        activeBlockData = JSON.parse(JSON.stringify(block.box_pixels));
-                    } else {
-                        // Select new box
-                        selectedBlockIndex = idx;
-                        renderTextOverlay(item); 
-                        
-                        // Immediate drag start
-                        dragAction = 'move';
-                        dragStart = { x: mouseX, y: mouseY };
-                        activeBlockData = JSON.parse(JSON.stringify(block.box_pixels));
-                    }
-                    e.stopPropagation();
-                }
-            } else {
-                if (selectedBlockIndex !== -1) {
-                    selectedBlockIndex = -1;
-                    renderTextOverlay(item);
-                }
-            }
-        }
-
-        function handleOverlayMouseMove(e) {
-            if (!dragAction || selectedBlockIndex === -1) return;
-            const item = pagesData[currentIndex];
-            const rect = textOverlay.getBoundingClientRect();
-            const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-            const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-            if(!clientX) return; 
-
-            const mouseX = clientX - rect.left;
-            const mouseY = clientY - rect.top;
-            const deltaX = mouseX - dragStart.x;
-            const deltaY = mouseY - dragStart.y;
-            const scaleX = 1000 / rect.width;
-            const scaleY = 1000 / rect.height;
-            const dX_1000 = deltaX * scaleX;
-            const dY_1000 = deltaY * scaleY;
-
-            const block = item.displayData[selectedBlockIndex];
-            const initial = activeBlockData; 
-
-            if (dragAction === 'move') {
-                block.box_pixels[0] = initial[0] + dY_1000;
-                block.box_pixels[1] = initial[1] + dX_1000;
-                block.box_pixels[2] = initial[2] + dY_1000;
-                block.box_pixels[3] = initial[3] + dX_1000;
-            } else if (dragAction === 'resize') {
-                block.box_pixels[2] = Math.max(block.box_pixels[0] + 10, initial[2] + dY_1000);
-                block.box_pixels[3] = Math.max(block.box_pixels[1] + 10, initial[3] + dX_1000);
-            }
-            
-            // Sync changes back to rawData if possible
-            // Note: Since merging combines IDs, moving a merged block should ideally move all raw constituents.
-            // Simplified: We only update displayData live. We should sync back on mouseUp.
-            
-            const div = textOverlay.children[selectedBlockIndex];
-            if (div) {
-                const y = block.box_pixels[0]/10; const x = block.box_pixels[1]/10;
-                const h = (block.box_pixels[2]-block.box_pixels[0])/10; const w = (block.box_pixels[3]-block.box_pixels[1])/10;
-                div.style.top = `${y}%`; div.style.left = `${x}%`; div.style.width = `${w}%`; div.style.height = `${h}%`;
-            }
-            e.preventDefault(); 
-        }
-
-        function handleOverlayMouseUp(e) {
-            if (dragAction && selectedBlockIndex !== -1) {
-                // Sync displayData changes back to rawData
-                const item = pagesData[currentIndex];
-                const block = item.displayData[selectedBlockIndex];
-                const ids = block.sourceIds || [block.id];
-                
-                // For a merged block, we can't easily "split" the move back to individual raw blocks if they were spaced.
-                // But typically moving a paragraph moves all lines together.
-                // We will apply the delta of the Top-Left corner to all raw constituents.
-                if (activeBlockData) {
-                    const deltaY = block.box_pixels[0] - activeBlockData[0];
-                    const deltaX = block.box_pixels[1] - activeBlockData[1];
-                    
-                    item.rawData.forEach(raw => {
-                        if (ids.includes(raw.id)) {
-                            raw.box_pixels[0] += deltaY;
-                            raw.box_pixels[2] += deltaY;
-                            raw.box_pixels[1] += deltaX;
-                            raw.box_pixels[3] += deltaX;
-                        }
-                    });
-                }
-            }
-            dragAction = null;
-            activeBlockData = null;
-        }
+        function toggleMerge() { if(currentIndex >= 0) { processData(pagesData[currentIndex]); renderTextOverlay(pagesData[currentIndex]); } }
+        function processData(item) { item.displayData = document.getElementById('mergeToggle').checked ? mergeTextBlocks(item.rawData) : item.rawData; }
 
         function renderTextOverlay(item) {
-            textOverlay.innerHTML = '';
-            if (!item.displayData) return;
-            
+            textOverlay.innerHTML = ''; if (!item.displayData) return;
             item.displayData.forEach((block, idx) => {
-                const div = document.createElement('div');
-                // Use internal state or default to 1
-                const state = block.state !== undefined ? block.state : 1;
-                
-                let cssClass = 'keep';
-                if (state === 1) cssClass = 'reconstruct';
-                else if (state === 2) cssClass = 'overlay';
-
-                if (idx === selectedBlockIndex) {
-                    div.classList.add('selected');
-                }
-                
-                const isManual = !!block.isManual;
-                const isSelected = (idx === selectedBlockIndex);
-
-                if (isManual) {
-                    div.classList.add('manual');
-                    div.setAttribute('contenteditable', isSelected ? 'true' : 'false');
-                    div.textContent = block.text;
-                    div.addEventListener('input', () => { 
-                        block.text = div.textContent; 
-                        // Update rawData text as well
-                        const ids = block.sourceIds || [block.id];
-                        item.rawData.forEach(r => { if(ids.includes(r.id)) r.text = block.text; });
-                    });
-                } else {
-                    div.classList.add('ai');
-                    div.setAttribute('contenteditable', 'false');
-                    div.textContent = ""; 
-                }
-
-                div.className = `ocr-box ${cssClass} ${idx === selectedBlockIndex ? 'selected' : ''} ${isManual ? 'manual' : 'ai'}`;
-                
-                const y = block.box_pixels[0]/10; const x = block.box_pixels[1]/10;
-                const h = (block.box_pixels[2]-block.box_pixels[0])/10; const w = (block.box_pixels[3]-block.box_pixels[1])/10;
-                div.style.top = `${y}%`; div.style.left = `${x}%`; div.style.width = `${w}%`; div.style.height = `${h}%`;
-                
-                if (idx === selectedBlockIndex) {
-                    const resizeHandle = document.createElement('div');
-                    resizeHandle.className = 'resize-handle';
-                    resizeHandle.contentEditable = "false";
-                    div.appendChild(resizeHandle);
-                    
-                    if (isManual) {
-                        const moveHandle = document.createElement('div');
-                        moveHandle.className = 'move-handle';
-                        moveHandle.contentEditable = "false";
-                        div.appendChild(moveHandle);
-                    }
-
-                    // Delete handle for everyone now
-                    const deleteHandle = document.createElement('div');
-                    deleteHandle.className = 'delete-handle';
-                    deleteHandle.contentEditable = "false";
-                    deleteHandle.onclick = (e) => {
-                        e.stopPropagation();
-                        deleteBlock(idx);
-                    };
-                    div.appendChild(deleteHandle);
-                }
-
-                // Toggle State on Double Click
-                div.addEventListener('dblclick', (e) => {
-                    if (e.target !== div && isManual) return; 
-                    e.stopPropagation();
-                    const newState = (state + 1) % 3;
-                    block.state = newState;
-                    
-                    // Propagate state to rawData
-                    const ids = block.sourceIds || [block.id];
-                    item.rawData.forEach(r => { if(ids.includes(r.id)) r.state = newState; });
-                    
-                    renderTextOverlay(item);
-                });
-
+                const div = document.createElement('div'), state = block.state || 0;
+                div.className = `ocr-box ${state === 0 ? 'keep' : 'reconstruct'} ${idx === selectedBlockIndex ? 'selected' : ''}`;
+                div.style.top = `${block.box_pixels[0]/10}%`; div.style.left = `${block.box_pixels[1]/10}%`;
+                div.style.width = `${(block.box_pixels[3]-block.box_pixels[1])/10}%`; div.style.height = `${(block.box_pixels[2]-block.box_pixels[0])/10}%`;
+                const deleteBtn = document.createElement('div'); deleteBtn.className = 'delete-handle'; deleteBtn.onclick = (e) => { e.stopPropagation(); deleteTextBox(idx); };
+                div.innerHTML = `<div class="resize-handle"></div><div class="move-handle"></div>`; div.appendChild(deleteBtn);
+                div.onclick = (e) => { e.stopPropagation(); selectedBlockIndex = idx; renderTextOverlay(item); };
+                div.ondblclick = (e) => { e.stopPropagation(); block.state = block.state === 1 ? 0 : 1; renderTextOverlay(item); };
                 textOverlay.appendChild(div);
             });
         }
-        
-        textOverlay.addEventListener('mousedown', handleOverlayMouseDown);
-        window.addEventListener('mousemove', handleOverlayMouseMove); 
-        window.addEventListener('mouseup', handleOverlayMouseUp);
-        
-        textOverlay.addEventListener('touchstart', (e)=>{
-            if(e.touches.length > 1) return; 
-            handleOverlayMouseDown(e);
-        }, {passive: false});
-        window.addEventListener('touchmove', handleOverlayMouseMove, {passive: false});
-        window.addEventListener('touchend', handleOverlayMouseUp);
 
-        async function analyzeCurrentPage() {
-            const key = apiKeyInput.value.trim();
-            if (!key) return alert('請輸入 API Key');
-            canvasLoader.classList.remove('hidden');
-            loaderText.textContent = "AI 視覺運算中...";
-            
-            try {
-                // Strategy: Render to an offscreen canvas without UI masks to ensure pure AI analysis
-                // This matches V37.29 behavior exactly.
-                const item = pagesData[currentIndex];
-                const offCvs = document.createElement('canvas');
-                const scale = 1.5; // Good quality for OCR
-                const vp = item.viewport;
-                offCvs.width = vp.width * scale;
-                offCvs.height = vp.height * scale;
-                const ctx = offCvs.getContext('2d');
-
-                if (item.type === 'pdf') {
-                    const page = await pdfDoc.getPage(item.pageNum);
-                    await page.render({ canvasContext: ctx, viewport: page.getViewport({ scale: scale }) }).promise;
-                } else {
-                    const img = new Image();
-                    img.src = item.imgUrl;
-                    await img.decode();
-                    ctx.drawImage(img, 0, 0, offCvs.width, offCvs.height);
-                }
-                
-                // Mask the watermark area before sending to AI if enabled
-                if (isWatermarkEnabled) {
-                    applyWatermarkMask(ctx, offCvs.width, offCvs.height);
-                }
-
-                const base64 = offCvs.toDataURL('image/jpeg', 0.8).split(',')[1];
-                const prompt = `Identify all text blocks for RECONSTRUCTION. Return JSON Array ONLY.
-Format: [{"text": "content", "box_pixels": [ymin, xmin, ymax, xmax] (0-1000 scale), "font_size": number, "color": "hex", "is_bold": boolean, "align": "left"}]
-Important: The box_pixels MUST include the full background context of the text, not just the glyphs.`;
-
-                const result = await callGemini(key, prompt, base64);
-                
-                if (!Array.isArray(result) || result.length === 0) {
-                    alert("AI 未偵測到文字，請確認圖片清晰度或調整視角。");
-                    updateStatus(pagesData[currentIndex]);
-                    return;
-                }
-
-                // Initialize rawData with IDs and default state
-                item.rawData = result.map(b => ({
-                    ...b,
-                    id: uuid(),
-                    state: 1
-                }));
-                
-                processData(item);
-                // Removed autoPickBackgroundColor() here as requested
-                // autoPickBackgroundColor(); 
-                renderTextOverlay(item);
-                updateStatus(item);
-            } catch (e) {
-                console.error(e);
-                alert('AI 分析失敗: ' + e.message);
-                updateStatus(pagesData[currentIndex]);
-            } finally {
-                canvasLoader.classList.add('hidden');
-            }
-        }
-
-        async function callGemini(key, text, imageBase64) {
-            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${key}`;
-            const payload = {
-                contents: [{ role: "user", parts: [{ text: text }, { inlineData: { mimeType: "image/jpeg", data: imageBase64 } }] }],
-                generationConfig: { responseMimeType: "application/json" }
-            };
-            const res = await fetch(url, { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error?.message || 'API Error');
-            
-            // Stronger JSON extraction
-            let raw = data.candidates[0].content.parts[0].text;
-            
-            // Remove markdown code fences if present
-            raw = raw.replace(/```json/g, '').replace(/```/g, '').trim();
-            
-            // Find the array brackets to ensure we get valid JSON
-            const start = raw.indexOf('[');
-            const end = raw.lastIndexOf(']');
-            
-            if (start === -1 || end === -1) {
-                 if(raw.trim().startsWith('{')) throw new Error("AI 回傳了單一物件而非陣列，請重試");
-                 throw new Error("AI 回傳格式不符 (找不到 JSON 陣列)");
-            }
-            
-            raw = raw.substring(start, end + 1);
-            try {
-                return JSON.parse(raw);
-            } catch (e) {
-                console.warn("JSON Parse Error, attempting fix:", e);
-                // Fix "Bad escaped character" error by double escaping backslashes not followed by valid escape chars
-                const fixedRaw = raw.replace(/\\(?!["\\/bfnrtu])/g, "\\\\");
-                try {
-                    return JSON.parse(fixedRaw);
-                } catch (e2) {
-                    throw new Error("JSON 解析失敗: " + e.message);
-                }
-            }
-        }
-
-        function updateStatus(item) {
-            const badge = item.el.querySelector('.status-badge');
-            if (item.rawData && item.rawData.length > 0) {
-                badge.textContent = '已分析';
-                badge.className = 'status-badge text-[10px] bg-indigo-100 text-indigo-600 px-2 py-1 rounded-full inline-block';
-                statusTextEl.textContent = `✅ 偵測到 ${item.displayData.length} 個區塊`;
-            } else {
-                badge.textContent = '未分析';
-                statusTextEl.textContent = '請點擊「AI 視覺辨識」';
-            }
-            checkAllDone();
-        }
-
-        function checkAllDone() {
-            const ready = pagesData.some(p => (p.rawData && p.rawData.length > 0) || p.strokes.length > 0);
-            document.getElementById('downloadBtn').disabled = !ready;
-        }
-
-        async function startAutoRun() {
-            const key = apiKeyInput.value.trim();
-            if (!key) return alert('請輸入 API Key');
-            for (let i = 0; i < pagesData.length; i++) {
-                if (pagesData[i].rawData) continue;
-                await loadPage(i);
-                await analyzeCurrentPage();
-                await new Promise(r => setTimeout(r, 1500)); 
-            }
-            alert('全部分析完成！');
-        }
-
-        // --- AI Refine Function (Iterative Denoise + Merge) ---
-        async function smartRefinePage() {
-            const key = apiKeyInput.value.trim();
-            if (!key) return alert('請輸入 API Key');
-            if (currentIndex === -1 || !pagesData[currentIndex].rawData) {
-                 return alert('請先進行 AI 辨識');
-            }
-            
-            canvasLoader.classList.remove('hidden');
-            loaderText.textContent = "AI 深度去噪校正中...";
-            
-            try {
-                const item = pagesData[currentIndex];
-                
-                // Create offscreen canvas for Refine
-                const tempCvs = document.createElement('canvas');
-                tempCvs.width = pdfCanvas.width;
-                tempCvs.height = pdfCanvas.height;
-                const ctx = tempCvs.getContext('2d');
-                
-                // Draw original
-                ctx.drawImage(pdfCanvas, 0, 0);
-                
-                // Draw existing masks based on CURRENT display state
-                // Use per-block color sampling
-                if (item.displayData) {
-                    item.displayData.forEach((block) => {
-                        const state = block.state !== undefined ? block.state : 1;
-                        if (state === 1) { // Red box
-                            const y = (block.box_pixels[0] / 1000) * tempCvs.height;
-                            const x = (block.box_pixels[1] / 1000) * tempCvs.width;
-                            const h = ((block.box_pixels[2] - block.box_pixels[0]) / 1000) * tempCvs.height;
-                            const w = ((block.box_pixels[3] - block.box_pixels[1]) / 1000) * tempCvs.width;
-                            
-                            // Sample background color locally
-                            const boxX = x;
-                            const boxY = y;
-                            // Sample 5px left of the box
-                            let sampleX = Math.max(0, boxX - 5);
-                            let sampleY = boxY + h/2; // Center vertical
-                            
-                            // If too close to left edge, sample right side
-                            if (boxX < 5) sampleX = Math.min(tempCvs.width - 1, boxX + w + 5);
-                            
-                            // Sample pixel
-                            const p = ctx.getImageData(sampleX, sampleY, 1, 1).data;
-                            ctx.fillStyle = `rgb(${p[0]},${p[1]},${p[2]})`;
-                            
-                            ctx.fillRect(x - 2, y - 2, w + 4, h + 4); 
-                        }
-                    });
-                }
-                
-                // Mask the watermark area before sending to AI if enabled
-                if (isWatermarkEnabled) {
-                    applyWatermarkMask(ctx, tempCvs.width, tempCvs.height);
-                }
-                
-                const base64 = tempCvs.toDataURL('image/jpeg', 0.8).split(',')[1];
-
-                const prompt = `
-                The provided image has the main text content masked out. 
-                Identify ALL remaining visible non-background elements (text parts, noise, debris).
-                Return JSON Array ONLY:
-                [{"text": "", "box_pixels": [ymin, xmin, ymax, xmax] (0-1000 scale)}]
-                `;
-
-                const result = await callGemini(key, prompt, base64);
-                
-                if (result && result.length > 0) {
-                    // Append new blocks to rawData
-                    const newBlocks = result.map(b => ({
-                        ...b,
-                        id: uuid(),
-                        text: "", // Force empty text for noise masks
-                        font_size: 10,
-                        color: "#000000",
-                        is_bold: false,
-                        align: "left",
-                        isManual: false,
-                        state: 1 // Default to Reconstruct (Mask)
-                    }));
-                    
-                    if (!item.rawData) item.rawData = [];
-                    item.rawData.push(...newBlocks);
-                    
-                    // Automatically Re-evaluate Merge
-                    processData(item);
-                    
-                    renderTextOverlay(item);
-                    updateStatus(item);
-                    alert(`已校正並移除 ${newBlocks.length} 個殘留雜訊，並重新執行版面合併。`);
-                } else {
-                    alert("AI 未發現明顯殘留雜訊");
-                }
-                
-            } catch (e) {
-                console.error(e);
-                alert('校正失敗: ' + e.message);
-            } finally {
-                canvasLoader.classList.add('hidden');
-                loaderText.textContent = "AI 視覺運算中...";
-            }
+        function deleteTextBox(idx) {
+            const item = pagesData[currentIndex], block = item.displayData[idx], ids = block.sourceIds || [block.id];
+            item.rawData = item.rawData.filter(r => !ids.includes(r.id));
+            processData(item); selectedBlockIndex = -1; renderTextOverlay(item);
         }
 
         async function exportPPT() {
-            const btn = document.getElementById('downloadBtn');
-            btn.disabled = true; btn.textContent = '生成中...';
-            
-            const userFontScale = parseFloat(fontScaleInput.value) || 1.0;
-            const maskExpansion = parseFloat(maskExpansionInput.value) || 1.0;
-
-            try {
-                const pptx = new PptxGenJS();
-                pptx.layout = 'LAYOUT_16x9';
-
-                for (let i = 0; i < pagesData.length; i++) {
-                    const item = pagesData[i];
-                    const slide = pptx.addSlide();
-
-                    const tempCanvas = document.createElement('canvas');
-                    const vpW = item.viewport?.width || 1024;
-                    const vpH = item.viewport?.height || 768;
-                    const exportScale = 2000 / vpW; 
-                    tempCanvas.width = vpW * exportScale;
-                    tempCanvas.height = vpH * exportScale;
-                    const ctx = tempCanvas.getContext('2d');
-
-                    if (item.type === 'pdf') {
-                        const page = await pdfDoc.getPage(item.pageNum);
-                        await page.render({ canvasContext: ctx, viewport: page.getViewport({ scale: exportScale }) }).promise;
-                    } else {
-                        const img = new Image(); img.src = item.imgUrl; await img.decode();
-                        ctx.drawImage(img, 0, 0, tempCanvas.width, tempCanvas.height);
-                    }
-
-                    if (isWatermarkEnabled) {
-                        applyWatermarkMask(ctx, tempCanvas.width, tempCanvas.height);
-                    }
-
-                    // Per-block color sampling for mask fill
-                    if (item.displayData) {
-                        item.displayData.forEach((block) => {
-                            const state = block.state !== undefined ? block.state : 1;
-                            if (state === 1) { 
-                                const y = (block.box_pixels[0] / 1000) * tempCanvas.height;
-                                const x = (block.box_pixels[1] / 1000) * tempCanvas.width;
-                                const h = ((block.box_pixels[2] - block.box_pixels[0]) / 1000) * tempCanvas.height;
-                                const w = ((block.box_pixels[3] - block.box_pixels[1]) / 1000) * tempCanvas.width;
-                                
-                                const expFactor = maskExpansion - 1.0; 
-                                let paddingH = 0;
-                                let paddingW = 0;
-                                if (expFactor > 0) {
-                                    paddingH = h * expFactor;
-                                    paddingW = w * expFactor;
-                                }
-                                
-                                // Sample local background color
-                                // We need to sample from the ORIGINAL image/pdf content on canvas
-                                // Sample 5px to the left
-                                let sampleX = Math.max(0, x - 5);
-                                let sampleY = y + h/2; 
-                                if (x < 5) sampleX = Math.min(tempCanvas.width - 1, x + w + 5);
-                                
-                                const p = ctx.getImageData(sampleX, sampleY, 1, 1).data;
-                                ctx.fillStyle = `rgb(${p[0]},${p[1]},${p[2]})`;
-                                
-                                ctx.fillRect(x - paddingW, y - paddingH, w + (paddingW * 2), h + (paddingH * 2));
-                            }
-                        });
-                    }
-
-                    item.strokes.forEach(s => {
-                        if (s.points.length < 1) return;
-                        ctx.beginPath(); ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-                        ctx.lineWidth = s.normSize * tempCanvas.width; ctx.strokeStyle = s.color;
-                        ctx.moveTo(s.points[0].x * tempCanvas.width, s.points[0].y * tempCanvas.height);
-                        for(let k=1; k<s.points.length; k++) ctx.lineTo(s.points[k].x * tempCanvas.width, s.points[k].y * tempCanvas.height);
-                        ctx.stroke();
+            const pptx = new PptxGenJS(); pptx.layout = 'LAYOUT_16x9';
+            const fScale = parseFloat(document.getElementById('fontScale').value);
+            for (const item of pagesData) {
+                if (!item.displayData && item.strokes.length === 0) continue;
+                const slide = pptx.addSlide(), tempCvs = document.createElement('canvas');
+                tempCvs.width = pdfCanvas.width; tempCvs.height = pdfCanvas.height;
+                const ctx = tempCvs.getContext('2d', { willReadFrequently: true }); 
+                ctx.drawImage(pdfCanvas, 0, 0);
+                if (item.displayData) {
+                    item.displayData.forEach(b => {
+                        if (b.state === 1) {
+                            const x = (b.box_pixels[1]/1000)*tempCvs.width, y = (b.box_pixels[0]/1000)*tempCvs.height;
+                            const w = ((b.box_pixels[3]-b.box_pixels[1])/1000)*tempCvs.width, h = ((b.box_pixels[2]-b.box_pixels[0])/1000)*tempCvs.height;
+                            ctx.fillStyle = detectSmartFitColor(ctx, b.box_pixels, tempCvs.width, tempCvs.height, 'bg');
+                            ctx.fillRect(Math.floor(x-2), Math.floor(y-2), Math.ceil(w+4), Math.ceil(h+4));
+                        }
                     });
-
-                    const bgData = tempCanvas.toDataURL('image/jpeg', 0.85);
-                    slide.background = { data: bgData };
-
-                    const slideW = 10;
-                    const slideH = 5.625;
-                    const imgRatio = vpW / vpH;
-                    const slideRatio = slideW / slideH;
-                    
-                    let finalW, finalH, finalX, finalY;
-                    if (imgRatio > slideRatio) {
-                         finalW = slideW; finalH = slideW / imgRatio; finalX = 0; finalY = (slideH - finalH) / 2;
-                    } else {
-                         finalH = slideH; finalW = slideH * imgRatio; finalY = 0; finalX = (slideW - finalW) / 2;
-                    }
-
-                    if (item.displayData) {
-                        item.displayData.forEach((block) => {
-                            const state = block.state !== undefined ? block.state : 1;
-                            // Skip noise blocks (empty text)
-                            if ((state === 1 || state === 2) && block.text && block.text.trim() !== "") {
-                                const relX = block.box_pixels[1] / 1000;
-                                const relY = block.box_pixels[0] / 1000;
-                                const relW = (block.box_pixels[3] - block.box_pixels[1]) / 1000;
-                                const relH = (block.box_pixels[2] - block.box_pixels[0]) / 1000;
-
-                                const pptX = finalX + (relX * finalW);
-                                const pptY = finalY + (relY * finalH);
-                                const pptW = relW * finalW;
-                                const pptH = relH * finalH;
-
-                                let rawSize = block.font_size || 8; 
-                                let mappedFontSize = 10;
-                                if (rawSize >= 10) mappedFontSize = 14; 
-                                else mappedFontSize = 10;
-                                
-                                const maxFontSizeBasedOnHeight = (pptH * 72) * 0.75; 
-                                let fontSize = Math.min(mappedFontSize, maxFontSizeBasedOnHeight);
-                                fontSize = fontSize * userFontScale;
-                                fontSize = Math.min(20, Math.max(fontSize, 8));
-
-                                slide.addText(block.text, {
-                                    x: pptX, y: pptY, w: pptW, h: pptH,
-                                    fontSize: fontSize,
-                                    color: block.color ? block.color.replace('#','') : '000000',
-                                    bold: block.is_bold,
-                                    align: block.align || 'left',
-                                    valign: 'top',
-                                    fontFace: "Noto Sans TC" 
-                                });
-                            }
-                        });
-                    }
                 }
-
-                await pptx.writeFile({ fileName: 'NotebookLM_V37_28_DeepClean.pptx' });
-
-            } catch (err) {
-                console.error(err);
-                alert("匯出錯誤: " + err.message);
+                slide.background = { data: tempCvs.toDataURL('image/jpeg', 0.9) };
+                if (item.displayData) {
+                    item.displayData.forEach(b => {
+                        if (b.state === 1) {
+                            slide.addText(b.text, { 
+                                x: (b.box_pixels[1]/1000)*10, y: (b.box_pixels[0]/1000)*5.625, 
+                                w: ((b.box_pixels[3]-b.box_pixels[1])/1000)*10, h: ((b.box_pixels[2]-b.box_pixels[0])/1000)*5.625, 
+                                fontSize: calculateGlobalFitFS(b, b.text, fScale), color: b.color.replace('#',''), 
+                                fontFace: "Noto Sans", valign: 'middle', align: 'left', margin: 0,
+                                shrinkText: false, wrap: true
+                            });
+                        }
+                    });
+                }
             }
-            btn.disabled = false; btn.innerHTML = '<i data-lucide="download" class="w-4 h-4"></i> <span class="hidden sm:inline">下載 PPT</span>';
-            lucide.createIcons({ root: btn });
+            pptx.writeFile({ fileName: `Visual_Peak_NotoSans_V37.53.pptx` });
         }
-        
-        maskCanvas.addEventListener('mousedown', startDrawing);
-        maskCanvas.addEventListener('mousemove', draw);
-        maskCanvas.addEventListener('mouseup', stopDrawing);
-        maskCanvas.addEventListener('mouseout', stopDrawing);
-        maskCanvas.addEventListener('touchstart', (e)=>{e.preventDefault(); startDrawing(e.touches[0])}, {passive:false});
-        maskCanvas.addEventListener('touchmove', (e)=>{e.preventDefault(); draw(e.touches[0])}, {passive:false});
-        maskCanvas.addEventListener('touchend', stopDrawing);
+
+        function toggleEyedropper() { isEyedropper = !isEyedropper; document.getElementById('eyedropperBtn').classList.toggle('bg-blue-100', isEyedropper); }
+        function setMode(m) { editMode = m; document.getElementById('btn-mode-select').className = m === 'select' ? 'px-3 py-1.5 rounded bg-white shadow text-indigo-700' : 'px-3 py-1.5 rounded text-slate-500'; document.getElementById('btn-mode-brush').className = m === 'brush' ? 'px-3 py-1.5 rounded bg-white shadow text-indigo-700' : 'px-3 py-1.5 rounded text-slate-500'; maskCanvas.style.pointerEvents = (m === 'brush') ? 'auto' : 'none'; textOverlay.style.pointerEvents = (m === 'select') ? 'auto' : 'none'; }
+        maskCanvas.addEventListener('mousedown', (e) => {
+            if (isEyedropper) {
+                const r = maskCanvas.getBoundingClientRect(), x = (e.clientX - r.left) * (pdfCanvas.width / r.width), y = (e.clientY - r.top) * (pdfCanvas.height / r.height);
+                const p = pdfCanvas.getContext('2d', { willReadFrequently: true }).getImageData(Math.floor(x), Math.floor(y), 1, 1).data;
+                maskColorInput.value = "#" + ((1 << 24) + (p[0] << 16) + (p[1] << 8) + p[2]).toString(16).slice(1);
+                toggleEyedropper(); return;
+            }
+            if (editMode !== 'brush') return;
+            isDrawing = true; const r = maskCanvas.getBoundingClientRect();
+            pagesData[currentIndex].strokes.push({ color: maskColorInput.value, normSize: 0.02, points: [{ x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height }] });
+        });
+        maskCanvas.addEventListener('mousemove', (e) => { if (isDrawing && editMode === 'brush') { const r = maskCanvas.getBoundingClientRect(); pagesData[currentIndex].strokes.slice(-1)[0].points.push({ x: (e.clientX - r.left) / r.width, y: (e.clientY - r.top) / r.height }); redrawStrokes(pagesData[currentIndex]); } });
+        window.addEventListener('mouseup', () => { isDrawing = false; });
+        function redrawStrokes(item) { maskCtx.clearRect(0, 0, maskCanvas.width, maskCanvas.height); item.strokes.forEach(s => { maskCtx.beginPath(); maskCtx.strokeStyle = s.color; maskCtx.lineWidth = s.normSize * maskCanvas.width; maskCtx.lineCap = 'round'; maskCtx.moveTo(s.points[0].x * maskCanvas.width, s.points[0].y * maskCanvas.height); s.points.forEach(p => maskCtx.lineTo(p.x * maskCanvas.width, p.y * maskCanvas.height)); maskCtx.stroke(); }); }
+        function addTextBox() { if(!pagesData[currentIndex].rawData) pagesData[currentIndex].rawData=[]; pagesData[currentIndex].rawData.push({ id: 'man_' + Date.now(), text: "手動文字", box_pixels: [450, 400, 500, 600], color: "#000000", state: 1 }); processData(pagesData[currentIndex]); renderTextOverlay(pagesData[currentIndex]); }
     </script>
 </body>
 </html>
